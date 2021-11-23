@@ -14,7 +14,7 @@
 
 /* Number of iterations required to achieve soundness
  * (computed based on NUM_PARTIES) */
-#define NUM_ITERATION 64
+#define NUM_ITERATION 25
 
 /* Size of Hash output (in bytes) */
 #define H_OUT 32
