@@ -121,8 +121,8 @@ void good_index(uint64_t num_items, uint64_t row_index, uint64_t col_index) {
 	    r.resize(proof.U, pk);
 	    for (unsigned i = 0; i < proof.U; i++)
 	    {
-//        	r[i].sample(G); //will need to save randomness b/w runs for verifiability
-//	        rc.assign(r[i]);
+        	//r[i].sample(G); //will need to save randomness b/w runs for verifiability
+	        //rc.assign(r[i]);
 	        rc.generate(G);
 	        pk.encrypt(c[i], m.at(i), rc);
 	    }
@@ -131,6 +131,12 @@ void good_index(uint64_t num_items, uint64_t row_index, uint64_t col_index) {
     Prover<FFT_Data, Plaintext_<FFT_Data> > prover(proof, FieldD);
     //#endif
     size_t prover_memory = prover.NIZKPoK(proof, ctxts, ptxts, pk, c, m, r);
+    
+    cout << "Bdd noise report_size " << prover_memory << endl;
+    MemoryUsage mu;
+    prover.report_size(CAPACITY, mu);
+    cout << "Bdd noise memory usage: " << endl;
+    mu.print();
 
     if (proof.top_gear)
     {
@@ -139,6 +145,8 @@ void good_index(uint64_t num_items, uint64_t row_index, uint64_t col_index) {
             mm += mm;
     }
     
+    cout << "Bdd noise Communication " << (ctxts.get_length() + ptxts.get_length())/1024 << " kb" << endl;
+
 
 
 }
