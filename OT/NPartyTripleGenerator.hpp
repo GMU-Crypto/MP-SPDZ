@@ -15,6 +15,7 @@
 #include "Protocols/MAC_Check.hpp"
 #include "Protocols/SemiInput.hpp"
 #include "Protocols/SemiMC.hpp"
+#include "Protocols/mac_key.hpp"
 
 #include <sstream>
 #include <fstream>
@@ -187,7 +188,13 @@ void NPartyTripleGenerator<T>::generate()
     if (thread_num != 0)
         ss << "-" << thread_num;
     if (machine.output)
+    {
         outputFile.open(ss.str().c_str());
+        if (machine.generateMACs or not T::clear::invertible)
+            file_signature<T>().output(outputFile);
+        else
+            file_signature<typename T::clear>().output(outputFile);
+    }
 
     if (machine.generateBits)
         generateBits();
@@ -268,9 +275,9 @@ void NPartyTripleGenerator<W>::generateInputs(int player)
     inputs.resize(nTriplesPerLoop);
 
     typename W::input_check_type::MAC_Check MC(mac_key);
-    MC.POpen(check_sum, globalPlayer);
     // use zero element because all is perfectly randomized
     MC.set_random_element({});
+    MC.POpen(check_sum, globalPlayer);
     MC.Check(globalPlayer);
 }
 
@@ -667,7 +674,7 @@ void MascotTripleGenerator<T>::sacrifice(typename T::MAC_Check& MC, PRNG& G)
     auto& outputFile = this->outputFile;
     auto& uncheckedTriples = this->uncheckedTriples;
 
-    assert(T::clear::length() >= 40);
+    check_field_size<typename T::clear>();
 
     vector<T> maskedAs(nTriplesPerLoop);
     vector<TripleToSacrifice<T> > maskedTriples(nTriplesPerLoop);
@@ -738,6 +745,8 @@ void Spdz2kTripleGenerator<W>::sacrificeZ2k(U& MC, PRNG& G)
         // and first part of [sigma], i.e., t * [c] - [chat] 
         maskedTriples[j].template prepare_sacrifice<W>(uncheckedTriples[j], G);
         maskedAs[j] = maskedTriples[j].a[0];
+        // enough randomness in values
+        MC.set_random_element({});
     }
 
     vector<T> openedAs(nTriplesPerLoop);
@@ -748,6 +757,8 @@ void Spdz2kTripleGenerator<W>::sacrificeZ2k(U& MC, PRNG& G)
     for (int j = 0; j < nTriplesPerLoop; j++) {
         // compute t * [c] - [chat] - [b] * p
         sigmas.push_back(maskedTriples[j].computeCheckShare(V(openedAs[j])));
+        // enough randomness in values
+        MC.set_random_element({});
     }
     vector<T> open_sigmas;
     

@@ -77,13 +77,16 @@ def LTZ(s, a, k, kappa):
 
     k: bit length of a
     """
+    movs(s, program.non_linear.ltz(a, k, kappa))
+
+def LtzRing(a, k):
     from .types import sint, _bitint
     from .GC.types import sbitvec
     if program.use_split():
         summands = a.split_to_two_summands(k)
         carry = CarryOutRawLE(*reversed(list(x[:-1] for x in summands)))
         msb = carry ^ summands[0][-1] ^ summands[1][-1]
-        movs(s, sint.conv(msb))
+        return sint.conv(msb)
         return
     elif program.options.ring:
         from . import floatingpoint
@@ -96,11 +99,7 @@ def LTZ(s, a, k, kappa):
         a = r_bin[0].bit_decompose_clear(c_prime, m)
         b = r_bin[:m]
         u = CarryOutRaw(a[::-1], b[::-1])
-        movs(s, sint.conv(r_bin[m].bit_xor(c_prime >> m).bit_xor(u)))
-        return
-    t = sint()
-    Trunc(t, a, k, k - 1, kappa, True)
-    subsfi(s, t, 0)
+        return sint.conv(r_bin[m].bit_xor(c_prime >> m).bit_xor(u))
 
 def LessThanZero(a, k, kappa):
     from . import types
@@ -293,7 +292,7 @@ def PRandM(r_dprime, r_prime, b, k, m, kappa, use_dabit=True):
     """
     program.curr_tape.require_bit_length(k + kappa)
     from .types import sint
-    if program.use_edabit() and m > 1 and not const_rounds:
+    if program.use_edabit() and not const_rounds:
         movs(r_dprime, sint.get_edabit(k + kappa - m, True)[0])
         tmp, b[:] = sint.get_edabit(m, True)
         movs(r_prime, tmp)

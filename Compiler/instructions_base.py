@@ -4,6 +4,8 @@ import time
 import inspect
 import functools
 import copy
+import sys
+import struct
 from Compiler.exceptions import *
 from Compiler.config import *
 from Compiler import util
@@ -103,6 +105,7 @@ opcodes = dict(
     MATMULSM = 0xAB,
     CONV2DS = 0xAC,
     CHECK = 0xAF,
+    PRIVATEOUTPUT = 0xAD,
     # Data access
     TRIPLE = 0x50,
     BIT = 0x51,
@@ -126,6 +129,7 @@ opcodes = dict(
     INPUTMIXEDREG = 0xF3,
     RAWINPUT = 0xF4,
     INPUTPERSONAL = 0xF5,
+    SENDPERSONAL = 0xF6,
     STARTINPUT = 0x61,
     STOPINPUT = 0x62,  
     READSOCKETC = 0x63,
@@ -299,11 +303,12 @@ def vectorize(instruction, global_dict=None):
     vectorized_name = 'v' + instruction.__name__
     Vectorized_Instruction.__name__ = vectorized_name
     global_dict[vectorized_name] = Vectorized_Instruction
+
+    if 'sphinx.extension' in sys.modules:
+        return instruction
+
     global_dict[instruction.__name__ + '_class'] = instruction
-    instruction.__doc__ = ''
-    # exclude GF(2^n) instructions from documentation
-    if instruction.code and instruction.code >> 8 == 1:
-        maybe_vectorized_instruction.__doc__ = ''
+    maybe_vectorized_instruction.arg_format = instruction.arg_format
     return maybe_vectorized_instruction
 
 
@@ -332,7 +337,7 @@ def gf2n(instruction):
         if isinstance(arg_format, list):
             __format = []
             for __f in arg_format:
-                if __f in ('int', 'p', 'ci', 'str'):
+                if __f in ('int', 'long', 'p', 'ci', 'str'):
                     __format.append(__f)
                 else:
                     __format.append(__f[0] + 'g' + __f[1:])
@@ -355,12 +360,13 @@ def gf2n(instruction):
             arg_format = instruction_cls.gf2n_arg_format
         elif isinstance(instruction_cls.arg_format, itertools.repeat):
             __f = next(instruction_cls.arg_format)
-            if __f != 'int' and __f != 'p':
+            if __f not in ('int', 'long', 'p'):
                 arg_format = itertools.repeat(__f[0] + 'g' + __f[1:])
         else:
             arg_format = copy.deepcopy(instruction_cls.arg_format)
             reformat(arg_format)
 
+        @classmethod
         def is_gf2n(self):
             return True
 
@@ -389,8 +395,11 @@ def gf2n(instruction):
     else:
         global_dict[GF2N_Instruction.__name__] = GF2N_Instruction
 
+    if 'sphinx.extension' in sys.modules:
+        return instruction
+
     global_dict[instruction.__name__ + '_class'] = instruction_cls
-    instruction_cls.__doc__ = ''
+    maybe_gf2n_instruction.arg_format = instruction.arg_format
     return maybe_gf2n_instruction
     #return instruction
 
@@ -481,7 +490,16 @@ def cisc(function):
 
         def expand_merged(self, skip):
             if function.__name__ in skip:
-                return [self], 0
+                good = True
+                for call in self.calls:
+                    if not good:
+                        break
+                    for arg in call[0]:
+                        if isinstance(arg, program.curr_tape.Register) and \
+                           not issubclass(type(self.calls[0][0][0]), type(arg)):
+                            good = False
+                if good:
+                    return [self], 0
             tape = program.curr_tape
             block = tape.BasicBlock(tape, None, None)
             tape.active_basicblock = block
@@ -490,8 +508,12 @@ def cisc(function):
             for arg in self.args:
                 try:
                     new_regs.append(type(arg)(size=size))
-                except:
+                except TypeError:
                     break
+                except:
+                    print([call[0][0].size for call in self.calls])
+                    raise
+            assert len(new_regs) > 1
             base = 0
             for call in self.calls:
                 for new_reg, reg in zip(new_regs[1:], call[0][1:]):
@@ -520,6 +542,7 @@ def cisc(function):
             String.check(name)
             res += String.encode(name)
             for call in self.calls:
+                call[1].pop('nearest', None)
                 assert not call[1]
                 res += int_to_bytes(len(call[0]) + 2)
                 res += int_to_bytes(call[0][0].size)
@@ -651,6 +674,12 @@ class RegisterArgFormat(ArgFormat):
         assert arg.i >= 0
         return int_to_bytes(arg.i)
 
+    def __init__(self, f):
+        self.i = struct.unpack('>I', f.read(4))[0]
+
+    def __str__(self):
+        return self.reg_type + str(self.i)
+
 class ClearModpAF(RegisterArgFormat):
     reg_type = RegType.ClearModp
 
@@ -675,6 +704,20 @@ class IntArgFormat(ArgFormat):
     @classmethod
     def encode(cls, arg):
         return int_to_bytes(arg)
+
+    def __init__(self, f):
+        self.i = struct.unpack('>i', f.read(4))[0]
+
+    def __str__(self):
+        return str(self.i)
+
+class LongArgFormat(IntArgFormat):
+    @classmethod
+    def encode(cls, arg):
+        return struct.pack('>Q', arg)
+
+    def __init__(self, f):
+        self.i = struct.unpack('>Q', f.read(8))[0]
 
 class ImmediateModpAF(IntArgFormat):
     @classmethod
@@ -712,6 +755,13 @@ class String(ArgFormat):
     def encode(cls, arg):
         return bytearray(arg, 'ascii') + b'\0' * (cls.length - len(arg))
 
+    def __init__(self, f):
+        tmp = f.read(16)
+        self.str = str(tmp[0:tmp.find(b'\0')], 'ascii')
+
+    def __str__(self):
+        return self.str
+
 ArgFormats = {
     'c': ClearModpAF,
     's': SecretModpAF,
@@ -726,6 +776,7 @@ ArgFormats = {
     'i': ImmediateModpAF,
     'ig': ImmediateGF2NAF,
     'int': IntArgFormat,
+    'long': LongArgFormat,
     'p': PlayerNoAF,
     'str': String,
 }
@@ -819,6 +870,7 @@ class Instruction(object):
     def is_vec(self):
         return False
 
+    @classmethod
     def is_gf2n(self):
         return False
 
@@ -867,6 +919,10 @@ class Instruction(object):
                     new_args.append(arg)
         return new_args
 
+    @staticmethod
+    def get_usage(args):
+        return {}
+
     # String version of instruction attempting to replicate encoded version
     def __str__(self):
         
@@ -880,6 +936,66 @@ class Instruction(object):
     def __repr__(self):
         return self.__class__.__name__ + '(' + self.get_pre_arg() + ','.join(str(a) for a in self.args) + ')'
 
+class ParsedInstruction:
+    reverse_opcodes = {}
+
+    def __init__(self, f):
+        cls = type(self)
+        from Compiler import instructions
+        from Compiler.GC import instructions as gc_inst
+        if not cls.reverse_opcodes:
+            for module in instructions, gc_inst:
+                for x, y in inspect.getmodule(module).__dict__.items():
+                    if inspect.isclass(y) and y.__name__[0] != 'v':
+                        try:
+                            cls.reverse_opcodes[y.code] = y
+                        except AttributeError:
+                            pass
+        read = lambda: struct.unpack('>I', f.read(4))[0]
+        full_code = read()
+        code = full_code % (1 << Instruction.code_length)
+        self.size = full_code >> Instruction.code_length
+        self.type = cls.reverse_opcodes[code]
+        t = self.type
+        name = t.__name__
+        try:
+            n_args = len(t.arg_format)
+            self.var_args = False
+        except:
+            n_args = read()
+            self.var_args = True
+        try:
+            arg_format = iter(t.arg_format)
+        except:
+            if name == 'cisc':
+                arg_format = itertools.chain(['str'], itertools.repeat('int'))
+            else:
+                def arg_iter():
+                    i = 0
+                    while True:
+                        try:
+                            yield self.args[i].i
+                        except AttributeError:
+                            yield None
+                        i += 1
+                arg_format = t.dynamic_arg_format(arg_iter())
+        self.args = []
+        for i in range(n_args):
+            self.args.append(ArgFormats[next(arg_format)](f))
+
+    def __str__(self):
+        name = self.type.__name__
+        res = name + ' '
+        if self.size > 1:
+            res = 'v' + res + str(self.size) + ', '
+        if self.var_args:
+            res += str(len(self.args)) + ', '
+        res += ', '.join(str(arg) for arg in self.args)
+        return res
+
+    def get_usage(self):
+        return self.type.get_usage(self.args)
+
 class VarArgsInstruction(Instruction):
     def has_var_args(self):
         return True
@@ -890,6 +1006,26 @@ class VectorInstruction(Instruction):
 
     def get_code(self):
         return super(VectorInstruction, self).get_code(len(self.args[0]))
+
+class DynFormatInstruction(Instruction):
+    __slots__ = []
+
+    @property
+    def arg_format(self):
+        return self.dynamic_arg_format(iter(self.args))
+
+    @classmethod
+    def bases(self, args):
+        i = 0
+        while True:
+            try:
+                n = next(args)
+            except StopIteration:
+                return
+            yield i, n
+            i += n
+            for j in range(n - 1):
+                next(args)
 
 ###
 ### Basic arithmetic
@@ -988,6 +1124,11 @@ class PublicFileIOInstruction(DoNotEliminateInstruction):
 class TextInputInstruction(VarArgsInstruction, DoNotEliminateInstruction):
     """ Input from text file or stdin """
     __slots__ = []
+
+    def add_usage(self, req_node):
+        for player in self.get_players():
+            req_node.increment((self.field_type, 'input', player), \
+                               self.get_size())
 
 ###
 ### Data access instructions

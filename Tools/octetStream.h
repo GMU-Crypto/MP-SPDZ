@@ -35,7 +35,9 @@ class bigint;
 class FlexBuffer;
 
 /**
- * Buffer for networking communication with a pointer for sequential reading
+ * Buffer for network communication with a pointer for sequential reading.
+ * When sent over the network or stored in a file, the length is prefixed
+ * as eight bytes in little-endian order.
  */
 class octetStream
 {
@@ -78,6 +80,8 @@ class octetStream
   size_t get_ptr() const     { return ptr; }
   /// Length
   size_t get_length() const  { return len; }
+  /// Length including size tag
+  size_t get_total_length() const  { return len + sizeof(len); }
   /// Allocation
   size_t get_max_length() const { return mxlen; }
   /// Data pointer
@@ -202,6 +206,11 @@ class octetStream
       consume(s.data,l);
       s.len=l;
     }
+
+  /// Append string
+  void store(const string& str);
+  /// Read string
+  void get(string& str);
 
   /// Send on ``socket_num``
   template<class T>

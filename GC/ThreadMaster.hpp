@@ -11,6 +11,8 @@
 
 #include "instructions.h"
 
+#include "Tools/benchmarking.h"
+
 #include "Machine.hpp"
 
 namespace GC
@@ -58,6 +60,11 @@ Thread<T>* ThreadMaster<T>::new_thread(int i)
 template<class T>
 void ThreadMaster<T>::run()
 {
+    if (not opts.live_prep)
+    {
+        insecure("preprocessing from file in binary virtual machines");
+    }
+
     P = new PlainPlayer(N, "main");
 
     machine.load_schedule(progname);
@@ -85,11 +92,11 @@ void ThreadMaster<T>::run()
 
     post_run();
 
-    NamedCommStats stats = P->comm_stats;
+    NamedCommStats stats = P->total_comm();
     ExecutionStats exe_stats;
     for (auto thread : threads)
     {
-        stats += thread->P->comm_stats;
+        stats += thread->P->total_comm();
         exe_stats += thread->processor.stats;
         delete thread;
     }

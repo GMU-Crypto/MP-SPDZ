@@ -11,6 +11,9 @@
 
 template<class T> class HemiMatrixPrep;
 
+/**
+ * Semi-honest triple generation with semi-homomorphic encryption (pairwise)
+ */
 template<class T>
 class HemiPrep : public SemiHonestRingPrep<T>
 {
@@ -30,6 +33,9 @@ class HemiPrep : public SemiHonestRingPrep<T>
 public:
     static void basic_setup(Player& P);
     static void teardown();
+
+    static const FHE_PK& get_pk();
+    static const FD& get_FTD();
 
     HemiPrep(SubProcessor<T>* proc, DataPositions& usage) :
             BufferPrep<T>(usage),

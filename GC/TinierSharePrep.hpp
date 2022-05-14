@@ -8,23 +8,15 @@
 
 #include "TinierSharePrep.h"
 
-#include "PersonalPrep.hpp"
+#include "PersonalPrep.h"
 
 namespace GC
 {
 
 template<class T>
 TinierSharePrep<T>::TinierSharePrep(DataPositions& usage, int input_player) :
-        TinierSharePrep<T>(usage, ShareThread<secret_type>::s(), input_player)
-{
-}
-
-template<class T>
-TinierSharePrep<T>::TinierSharePrep(DataPositions& usage,
-        ShareThread<secret_type>& thread, int input_player) :
         PersonalPrep<T>(usage, input_player), triple_generator(0),
-        real_triple_generator(0),
-        thread(thread)
+        real_triple_generator(0)
 {
 }
 
@@ -47,14 +39,17 @@ template<class T>
 void TinierSharePrep<T>::set_protocol(typename T::Protocol& protocol)
 {
     if (triple_generator)
+    {
+        assert(&triple_generator->get_player() == &protocol.P);
         return;
+    }
 
     params.generateMACs = true;
     params.amplify = false;
     params.check = false;
     auto& thread = ShareThread<typename T::whole_type>::s();
     triple_generator = new typename T::TripleGenerator(
-            BaseMachine::s().fresh_ot_setup(), protocol.P.N, -1,
+            BaseMachine::fresh_ot_setup(protocol.P), protocol.P.N, -1,
             OnlineOptions::singleton.batch_size, 1,
             params, thread.MC->get_alphai(), &protocol.P);
     triple_generator->multi_threaded = false;
@@ -87,19 +82,9 @@ void TinierSharePrep<T>::buffer_inputs(int player)
 template<class T>
 void GC::TinierSharePrep<T>::buffer_bits()
 {
+    auto& thread = ShareThread<secret_type>::s();
     this->bits.push_back(
             BufferPrep<T>::get_random_from_inputs(thread.P->num_players()));
-}
-
-template<class T>
-NamedCommStats TinierSharePrep<T>::comm_stats()
-{
-    NamedCommStats res;
-    if (triple_generator)
-        res += triple_generator->comm_stats();
-    if (real_triple_generator)
-        res += real_triple_generator->comm_stats();
-    return res;
 }
 
 }

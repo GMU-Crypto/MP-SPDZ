@@ -65,6 +65,7 @@ protected:
 
   static void init_field(int nn = 0);
   static void init_default(int, bool = false) { init_field(); }
+  static void init_minimum(int lower);
 
   static void reset() { n = 0; }
   static int degree() { return n; }
@@ -75,6 +76,8 @@ protected:
   static char type_char() { return '2'; }
   static string type_short() { return "2"; }
   static string type_string() { return "gf2n_"; }
+
+  static void specification(octetStream& os);
 
   static int size() { return sizeof(a); }
   static int size_in_bits() { return sizeof(a) * 8; }
@@ -211,7 +214,7 @@ public:
   static const int DEFAULT_LENGTH = 40;
 
   static int length()         { return n == 0 ? DEFAULT_LENGTH : n; }
-  static int default_degree() { return 40; }
+  static int default_degree() { return DEFAULT_LENGTH; }
 
   static void init_field(int nn = 0);
 

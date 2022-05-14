@@ -3,6 +3,9 @@ This modules contains basic types for binary circuits. The
 fixed-length types obtained by :py:obj:`get_type(n)` are the preferred
 way of using them, and in some cases required in connection with
 container types.
+
+Computation using these types will always be executed as a binary
+circuit. See :ref:`protocol-pairs` for the exact protocols.
 """
 
 from Compiler.types import MemValue, read_mem_value, regint, Array, cint
@@ -17,7 +20,6 @@ import math
 from functools import reduce
 
 class bits(Tape.Register, _structure, _bit):
-    """ Base class for binary registers. """
     n = 40
     unit = 64
     PreOp = staticmethod(floatingpoint.PreOpN)
@@ -41,7 +43,7 @@ class bits(Tape.Register, _structure, _bit):
         return cls.types[length]
     @classmethod
     def conv(cls, other):
-        if isinstance(other, cls):
+        if isinstance(other, cls) and cls.n == other.n:
             return other
         elif isinstance(other, MemValue):
             return cls.conv(other.read())
@@ -111,11 +113,16 @@ class bits(Tape.Register, _structure, _bit):
         if mem_type == 'sd':
             return cls.load_dynamic_mem(address)
         else:
-            for i in range(res.size):
-                cls.load_inst[util.is_constant(address)](res[i], address + i)
+            cls.mem_op(cls.load_inst, res, address)
             return res
     def store_in_mem(self, address):
-        self.store_inst[isinstance(address, int)](self, address)
+        self.mem_op(self.store_inst, self, address)
+    @staticmethod
+    def mem_op(inst, reg, address):
+        direct = isinstance(address, int)
+        if not direct:
+            address = regint.conv(address)
+        inst[direct](reg, address)
     @classmethod
     def new(cls, value=None, n=None):
         if util.is_constant(value):
@@ -228,8 +235,8 @@ class cbits(bits):
     max_length = 64
     reg_type = 'cb'
     is_clear = True
-    load_inst = (None, inst.ldmcb)
-    store_inst = (None, inst.stmcb)
+    load_inst = (inst.ldmcbi, inst.ldmcb)
+    store_inst = (inst.stmcbi, inst.stmcb)
     bitdec = inst.bitdecc
     conv_regint = staticmethod(lambda n, x, y: inst.convcint(x, y))
     conv_cint_vec = inst.convcintvec
@@ -241,14 +248,20 @@ class cbits(bits):
         assert n == res.n
         assert n == other.size
         cls.conv_cint_vec(cint(other, size=other.size), res)
+    @classmethod
+    def conv(cls, other):
+        if isinstance(other, cbits) and cls.n != None and \
+           cls.n // cls.unit == other.n // cls.unit:
+            return other
+        else:
+            return super(cbits, cls).conv(other)
     types = {}
     def load_int(self, value):
-        if self.n <= 64:
-            tmp = regint(value)
-        elif value == self.long_one():
-            tmp = cint(1, size=self.n)
-        else:
-            raise CompilerError('loading long integers to cbits not supported')
+        n_limbs = math.ceil(self.n / self.unit)
+        tmp = regint(size=n_limbs)
+        for i in range(n_limbs):
+            tmp[i].load_int(value % 2 ** self.unit)
+            value >>= self.unit
         self.load_other(tmp)
     def store_in_dynamic_mem(self, address):
         inst.stmsdci(self, cbits.conv(address))
@@ -309,6 +322,8 @@ class cbits(bits):
         res = type(self)()
         inst.notcb(self.n, res, self)
         return res
+    def __eq__(self, other):
+        raise CompilerError('equality not implemented')
     def print_reg(self, desc=''):
         inst.print_regb(self, desc)
     def print_reg_plain(self):
@@ -387,12 +402,18 @@ class sbits(bits):
         res = sbit()
         inst.bitb(res)
         return res
+    @staticmethod
+    def _check_input_player(player):
+        if not util.is_constant(player):
+            raise CompilerError('player must be known at compile time '
+                                'for binary circuit inputs')
     @classmethod
     def get_input_from(cls, player, n_bits=None):
         """ Secret input from :py:obj:`player`.
 
         :param: player (int)
         """
+        cls._check_input_player(player)
         if n_bits is None:
             n_bits = cls.n
         res = cls()
@@ -640,6 +661,7 @@ class sbitvec(_vec):
 
                 :param: player (int)
                 """
+                sbits._check_input_player(player)
                 res = cls.from_vec(sbit() for i in range(n))
                 inst.inputbvec(n + 3, 0, player, *res.v)
                 return res
@@ -767,6 +789,8 @@ class sbitvec(_vec):
             size = other.size
             return (other.get_vector(base, min(64, size - base)) \
                     for base in range(0, size, 64))
+        if not isinstance(other, type(self)):
+            return type(self)(other)
         return other
     def __xor__(self, other):
         other = self.coerce(other)
@@ -804,7 +828,7 @@ class sbitvec(_vec):
     def store_in_mem(self, address):
         for i, x in enumerate(self.elements()):
             x.store_in_mem(address + i)
-    def bit_decompose(self, n_bits=None, security=None):
+    def bit_decompose(self, n_bits=None, security=None, maybe_mixed=None):
         return self.v[:n_bits]
     bit_compose = from_vec
     def reveal(self):
@@ -1156,14 +1180,14 @@ class cbitfix(object):
     @classmethod
     def _new(cls, value):
         res = cls()
+        if cls.k < value.unit:
+            bits = value.bit_decompose(cls.k)
+            sign = bits[-1]
+            value += (sign << (cls.k)) * -1
         res.v = value
         return res
     def output(self):
         v = self.v
-        if self.k < v.unit:
-            bits = self.v.bit_decompose(self.k)
-            sign = bits[-1]
-            v += (sign << (self.k)) * -1
         inst.print_float_plainb(v, cbits.get_type(32)(-self.f), cbits(0),
                                 cbits(0), cbits(0))
 
@@ -1209,6 +1233,7 @@ class sbitfix(_fix):
 
         :param: player (int)
         """
+        sbits._check_input_player(player)
         v = cls.int_type()
         inst.inputb(player, cls.k, cls.f, v)
         return cls._new(v)
@@ -1260,6 +1285,9 @@ class sbitfixvec(_fix):
     int_type = sbitintvec.get_type(sbitfix.k)
     float_type = type(None)
     clear_type = cbitfix
+    @property
+    def bit_type(self):
+        return type(self.v[0])
     @classmethod
     def set_precision(cls, f, k=None):
         super(sbitfixvec, cls).set_precision(f=f, k=k)
@@ -1271,12 +1299,15 @@ class sbitfixvec(_fix):
         :param: player (int)
         """
         v = [sbit() for i in range(sbitfix.k)]
+        sbits._check_input_player(player)
         inst.inputbvec(len(v) + 3, sbitfix.f, player, *v)
         return cls._new(cls.int_type.from_vec(v))
     def __init__(self, value=None, *args, **kwargs):
         if isinstance(value, (list, tuple)):
             self.v = self.int_type.from_vec(sbitvec([x.v for x in value]))
         else:
+            if isinstance(value, sbitvec):
+                value = self.int_type(value)
             super(sbitfixvec, self).__init__(value, *args, **kwargs)
     def elements(self):
         return [sbitfix._new(x, f=self.f, k=self.k) for x in self.v.elements()]
@@ -1286,9 +1317,12 @@ class sbitfixvec(_fix):
         else:
             return super(sbitfixvec, self).mul(other)
     def __xor__(self, other):
+        if util.is_zero(other):
+            return self
         return self._new(self.v ^ other.v)
     def __and__(self, other):
         return self._new(self.v & other.v)
+    __rxor__ = __xor__
     @staticmethod
     def multipliable(other, k, f, size):
         class cls(_fix):

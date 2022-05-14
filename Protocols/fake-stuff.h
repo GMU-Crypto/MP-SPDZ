@@ -6,10 +6,12 @@
 using namespace std;
 
 #include "Networking/Player.h"
+#include "Processor/Data_Files.h"
+#include "Math/Setup.h"
 
 template<class T>
 void check_share(vector<T>& Sa, typename T::clear& value,
-    typename T::value_type& mac, int N, const typename T::value_type& key);
+    typename T::mac_type& mac, int N, const typename T::mac_key_type& key);
 
 template<class T> class Share;
 
@@ -32,7 +34,7 @@ template <class U>
 void read_mac_key(const string& directory, const Names& N, U& key);
 
 template <class T>
-typename T::mac_key_type read_generate_write_mac_key(const Player& P,
+typename T::mac_key_type read_generate_write_mac_key(Player& P,
         string directory = "");
 
 template <class T>
@@ -43,15 +45,27 @@ public:
   int N;
   typename T::mac_type key;
   PRNG G;
-  Files(int N, const typename T::mac_type& key, const string& prefix) : N(N), key(key)
+  Files(int N, const typename T::mac_type& key, const string& prep_data_prefix,
+      Dtype type, int thread_num = -1) :
+      Files(N, key,
+          get_prep_sub_dir<T>(prep_data_prefix, N)
+              + DataPositions::dtype_names[type] + "-" + T::type_short(),
+          thread_num)
+  {
+  }
+  Files(int N, const typename T::mac_type& key, const string& prefix,
+      int thread_num = -1) :
+      N(N), key(key)
   {
     outf = new ofstream[N];
     for (int i=0; i<N; i++)
       {
         stringstream filename;
         filename << prefix << "-P" << i;
+        filename << PrepBase::get_suffix(thread_num);
         cout << "Opening " << filename.str() << endl;
         outf[i].open(filename.str().c_str(),ios::out | ios::binary);
+        file_signature<T>().output(outf[i]);
         if (outf[i].fail())
           throw file_error(filename.str().c_str());
       }

@@ -14,11 +14,6 @@ using namespace std;
 #include "Tools/random.h"
 #include "field_types.h"
 
-template<class T> class ReplicatedMC;
-template<class T> class ReplicatedInput;
-template<class T> class ReplicatedPrivateOutput;
-template<class T> class Replicated;
-
 template <class T, int L>
 class FixedVec
 {
@@ -47,6 +42,11 @@ public:
     static string type_short()
     {
         return string(1, T::type_char());
+    }
+
+    static void specification(octetStream& os)
+    {
+        T::specification(os);
     }
 
     template<class U, class V>

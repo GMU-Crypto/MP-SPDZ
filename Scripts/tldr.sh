@@ -27,7 +27,12 @@ if test "$flags"; then
 	cpu=amd64
     fi
 
-    cp -av bin/`uname`-$cpu/* .
+    if ! cp -av bin/`uname`-$cpu/* .; then
+	echo This only works with a release downloaded from https://github.com/data61/MP-SPDZ/releases 1>&2
+	echo Make sure NOT to download a source code only file 1>&2
+	exit 1
+    fi
 fi
 
 mkdir Player-Data 2> /dev/null
+exit 0

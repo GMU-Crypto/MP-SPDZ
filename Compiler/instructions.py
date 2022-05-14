@@ -69,7 +69,7 @@ class ldmc(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
     """
     __slots__ = []
     code = base.opcodes['LDMC']
-    arg_format = ['cw','int']
+    arg_format = ['cw','long']
 
 @base.gf2n
 @base.vectorize
@@ -84,7 +84,7 @@ class ldms(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
     """
     __slots__ = []
     code = base.opcodes['LDMS']
-    arg_format = ['sw','int']
+    arg_format = ['sw','long']
 
 @base.gf2n
 @base.vectorize
@@ -99,7 +99,7 @@ class stmc(base.DirectMemoryWriteInstruction):
     """
     __slots__ = []
     code = base.opcodes['STMC']
-    arg_format = ['c','int']
+    arg_format = ['c','long']
 
 @base.gf2n
 @base.vectorize
@@ -114,7 +114,7 @@ class stms(base.DirectMemoryWriteInstruction):
     """
     __slots__ = []
     code = base.opcodes['STMS']
-    arg_format = ['s','int']
+    arg_format = ['s','long']
 
 @base.vectorize
 class ldmint(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
@@ -128,7 +128,7 @@ class ldmint(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
     """
     __slots__ = []
     code = base.opcodes['LDMINT']
-    arg_format = ['ciw','int']
+    arg_format = ['ciw','long']
 
 @base.vectorize
 class stmint(base.DirectMemoryWriteInstruction):
@@ -142,7 +142,7 @@ class stmint(base.DirectMemoryWriteInstruction):
     """
     __slots__ = []
     code = base.opcodes['STMINT']
-    arg_format = ['ci','int']
+    arg_format = ['ci','long']
 
 @base.vectorize
 class ldmci(base.ReadMemoryInstruction, base.IndirectMemoryInstruction):
@@ -421,6 +421,10 @@ class use_matmul(base.Instruction):
     code = base.opcodes['USE_MATMUL']
     arg_format = ['int','int','int','int']
 
+    @classmethod
+    def get_usage(cls, args):
+        return {('matmul', tuple(arg.i for arg in args[:3])): args[3].i}
+
 class run_tape(base.Instruction):
     """ Start tape/bytecode file in another thread.
 
@@ -442,7 +446,9 @@ class join_tape(base.Instruction):
     arg_format = ['int']
 
 class crash(base.IOInstruction):
-    """ Crash runtime. """
+    """ Crash runtime if the value in the register is not zero.
+
+    :param: Crash condition (regint)"""
     code = base.opcodes['CRASH']
     arg_format = ['ci']
 
@@ -1227,15 +1233,20 @@ class inverse(base.DataInstruction):
 @base.gf2n
 @base.vectorize
 class inputmask(base.Instruction):
-    r""" Load secret $s_i$ with the next input mask for player $p$ and
-    write the mask on player $p$'s private output. """ 
+    """ Store fresh random input mask(s) in secret register (vector) and clear
+    register (vector) of the relevant player.
+
+    :param: mask (sint)
+    :param: mask (cint, player only)
+    :param: player (int)
+    """
     __slots__ = []
     code = base.opcodes['INPUTMASK']
-    arg_format = ['sw', 'p']
+    arg_format = ['sw', 'cw', 'p']
     field_type = 'modp'
 
     def add_usage(self, req_node):
-        req_node.increment((self.field_type, 'input', self.args[1]), \
+        req_node.increment((self.field_type, 'input', self.args[2]), \
                                self.get_size())
 
 @base.vectorize
@@ -1273,7 +1284,7 @@ class prep(base.Instruction):
     field_type = 'modp'
 
     def add_usage(self, req_node):
-        req_node.increment((self.field_type, self.args[0]), 1)
+        req_node.increment((self.field_type, self.args[0]), self.get_size())
 
     def has_var_args(self):
         return True
@@ -1291,10 +1302,8 @@ class asm_input(base.TextInputInstruction):
     arg_format = tools.cycle(['sw', 'p'])
     field_type = 'modp'
 
-    def add_usage(self, req_node):
-        for player in self.args[1::2]:
-            req_node.increment((self.field_type, 'input', player), \
-                               self.get_size())
+    def get_players(self):
+        return self.args[1::2]
 
 @base.vectorize
 class inputfix(base.TextInputInstruction):
@@ -1303,10 +1312,8 @@ class inputfix(base.TextInputInstruction):
     arg_format = tools.cycle(['sw', 'int', 'p'])
     field_type = 'modp'
 
-    def add_usage(self, req_node):
-        for player in self.args[2::3]:
-            req_node.increment((self.field_type, 'input', player), \
-                               self.get_size())
+    def get_players(self):
+        return self.args[2::3]
 
 @base.vectorize
 class inputfloat(base.TextInputInstruction):
@@ -1320,7 +1327,7 @@ class inputfloat(base.TextInputInstruction):
             req_node.increment((self.field_type, 'input', player), \
                                4 * self.get_size())
 
-class inputmixed_base(base.TextInputInstruction):
+class inputmixed_base(base.TextInputInstruction, base.DynFormatInstruction):
     __slots__ = []
     field_type = 'modp'
     # the following has to match TYPE: (N_DEST, N_PARAM)
@@ -1339,22 +1346,30 @@ class inputmixed_base(base.TextInputInstruction):
         type_id = self.type_ids[name]
         super(inputmixed_base, self).__init__(type_id, *args)
 
-    @property
-    def arg_format(self):
-        for i in self.bases():
-            t = self.args[i]
-            yield 'int'
+    @classmethod
+    def dynamic_arg_format(self, args):
+        yield 'int'
+        for i, t in self.bases(iter(args)):
             for j in range(self.types[t][0]):
                 yield 'sw'
             for j in range(self.types[t][1]):
                 yield 'int'
             yield self.player_arg_type
+            yield 'int'
 
-    def bases(self):
+    @classmethod
+    def bases(self, args):
         i = 0
-        while i < len(self.args):
-            yield i
-            i += sum(self.types[self.args[i]]) + 2
+        while True:
+            try:
+                t = next(args)
+            except StopIteration:
+                return
+            yield i, t
+            n = sum(self.types[t])
+            i += n + 2
+            for j in range(n + 1):
+                next(args)
 
 @base.vectorize
 class inputmixed(inputmixed_base):
@@ -1378,12 +1393,15 @@ class inputmixed(inputmixed_base):
     player_arg_type = 'p'
 
     def add_usage(self, req_node):
-        for i in self.bases():
-            t = self.args[i]
+        for i, t in self.bases(iter(self.args)):
             player = self.args[i + sum(self.types[t]) + 1]
             n_dest = self.types[t][0]
             req_node.increment((self.field_type, 'input', player), \
                                n_dest * self.get_size())
+
+    def get_players(self):
+        for i, t in self.bases(iter(self.args)):
+            yield self.args[i + sum(self.types[t]) + 1]
 
 @base.vectorize
 class inputmixedreg(inputmixed_base):
@@ -1410,6 +1428,9 @@ class inputmixedreg(inputmixed_base):
         # player 0 as proxy
         req_node.increment((self.field_type, 'input', 0), float('inf'))
 
+    def get_players(self):
+        pass
+
 @base.gf2n
 @base.vectorize
 class rawinput(base.RawInputInstruction, base.Mergeable):
@@ -1431,7 +1452,23 @@ class rawinput(base.RawInputInstruction, base.Mergeable):
             req_node.increment((self.field_type, 'input', player), \
                                self.get_size())
 
-class inputpersonal(base.Instruction, base.Mergeable):
+class personal_base(base.Instruction, base.Mergeable):
+    __slots__ = []
+    field_type = 'modp'
+
+    def __init__(self, *args):
+        super(personal_base, self).__init__(*args)
+        for i in range(0, len(args), 4):
+            assert args[i + 2].size == args[i]
+            assert args[i + 3].size == args[i]
+
+    def add_usage(self, req_node):
+        for i in range(0, len(self.args), 4):
+            player = self.args[i + 1]
+            req_node.increment((self.field_type, 'input', player), \
+                               self.args[i])
+
+class inputpersonal(personal_base):
     """ Private input from cint.
 
     :param: vector size (int)
@@ -1443,19 +1480,39 @@ class inputpersonal(base.Instruction, base.Mergeable):
     __slots__ = []
     code = base.opcodes['INPUTPERSONAL']
     arg_format = tools.cycle(['int','p','sw','c'])
-    field_type = 'modp'
+
+class privateoutput(personal_base):
+    """ Private input from cint.
+
+    :param: vector size (int)
+    :param: player (int)
+    :param: destination (cint)
+    :param: source (sint)
+    :param: (repeat from vector size)...
+    """
+    __slots__ = []
+    code = base.opcodes['PRIVATEOUTPUT']
+    arg_format = tools.cycle(['int','p','cw','s'])
+
+class sendpersonal(base.Instruction, base.Mergeable):
+    """ Private input from cint.
+
+    :param: vector size (int)
+    :param: destination player (int)
+    :param: destination (cint)
+    :param: source player (int)
+    :param: source (cint)
+    :param: (repeat from vector size)...
+    """
+    __slots__ = []
+    code = base.opcodes['SENDPERSONAL']
+    arg_format = tools.cycle(['int','p','cw','p','c'])
 
     def __init__(self, *args):
-        super(inputpersonal, self).__init__(*args)
-        for i in range(0, len(args), 4):
+        super(sendpersonal, self).__init__(*args)
+        for i in range(0, len(args), 5):
             assert args[i + 2].size == args[i]
-            assert args[i + 3].size == args[i]
-
-    def add_usage(self, req_node):
-        for i in range(0, len(self.args), 4):
-            player = self.args[i + 1]
-            req_node.increment((self.field_type, 'input', player), \
-                               self.args[i])
+            assert args[i + 4].size == args[i]
 
 @base.gf2n
 @base.vectorize
@@ -1493,6 +1550,14 @@ class cond_print_plain(base.IOInstruction):
     """
     code = base.opcodes['CONDPRINTPLAIN']
     arg_format = ['c', 'c', 'c']
+
+    def __init__(self, *args, **kwargs):
+        base.Instruction.__init__(self, *args, **kwargs)
+        self.size = args[1].size
+        args[2].set_size(self.size)
+
+    def get_code(self):
+        return base.Instruction.get_code(self, self.size)
 
 class print_int(base.IOInstruction):
     """ Output clear integer register.
@@ -1589,7 +1654,16 @@ class readsocketc(base.IOInstruction):
         return True
 
 class readsockets(base.IOInstruction):
-    """Read a variable number of secret shares + MACs from socket for a client id and store in registers"""
+    """ Read a variable number of secret shares (potentially with MAC)
+    from a socket for a client id and store them in registers. If the
+    protocol uses MACs, the client should be different for every party.
+
+    :param: client id (regint)
+    :param: vector size (int)
+    :param: source (sint)
+    :param: (repeat source)...
+
+    """
     __slots__ = []
     code = base.opcodes['READSOCKETS']
     arg_format = tools.chain(['ci','int'], itertools.repeat('sw'))
@@ -1622,6 +1696,25 @@ class writesocketc(base.IOInstruction):
     __slots__ = []
     code = base.opcodes['WRITESOCKETC']
     arg_format = tools.chain(['ci', 'int', 'int'], itertools.repeat('c'))
+
+    def has_var_args(self):
+        return True
+
+class writesockets(base.IOInstruction):
+    """ Write a variable number of secret shares (potentially with MAC)
+    from registers into a socket for a specified client id. If the
+    protocol uses MACs, the client should be different for every party.
+
+    :param: client id (regint)
+    :param: message type (must be 0)
+    :param: vector size (int)
+    :param: source (sint)
+    :param: (repeat source)...
+
+    """
+    __slots__ = []
+    code = base.opcodes['WRITESOCKETS']
+    arg_format = tools.chain(['ci', 'int', 'int'], itertools.repeat('s'))
 
     def has_var_args(self):
         return True
@@ -1689,14 +1782,15 @@ class writesharestofile(base.IOInstruction):
     """ Write shares to ``Persistence/Transactions-P<playerno>.data``
     (appending at the end).
 
-    :param: number of shares (int)
+    :param: number of arguments to follow / number of shares plus one (int)
+    :param: position (regint, -1 for appending)
     :param: source (sint)
     :param: (repeat from source)...
 
     """
     __slots__ = []
     code = base.opcodes['WRITEFILESHARE']
-    arg_format = itertools.repeat('s')
+    arg_format = tools.chain(['ci'], itertools.repeat('s'))
 
     def has_var_args(self):
         return True
@@ -1749,27 +1843,6 @@ class floatoutput(base.PublicFileIOInstruction):
     __slots__ = []
     code = base.opcodes['FLOATOUTPUT']
     arg_format = ['p','c','c','c','c']
-
-@base.gf2n
-@base.vectorize
-class startprivateoutput(base.Instruction):
-    r""" Initiate private output to $n$ of $s_j$ via $s_i$. """
-    __slots__ = []
-    code = base.opcodes['STARTPRIVATEOUTPUT']
-    arg_format = ['sw','s','p']
-    field_type = 'modp'
-
-    def add_usage(self, req_node):
-        req_node.increment((self.field_type, 'input', self.args[2]), \
-                               self.get_size())
-
-@base.gf2n
-@base.vectorize
-class stopprivateoutput(base.Instruction):
-    r""" Previously iniated private output to $n$ via $c_i$. """
-    __slots__ = []
-    code = base.opcodes['STOPPRIVATEOUTPUT']
-    arg_format = ['cw','c','p']
 
 @base.vectorize
 class rand(base.Instruction):
@@ -2171,7 +2244,8 @@ class mulrs(base.VarArgsInstruction, base.DataInstruction):
 
 @base.gf2n
 @base.vectorize
-class dotprods(base.VarArgsInstruction, base.DataInstruction):
+class dotprods(base.VarArgsInstruction, base.DataInstruction,
+               base.DynFormatInstruction):
     """ Dot product of secret registers (vectors).
     Note that the vectorized version works element-wise.
 
@@ -2199,31 +2273,29 @@ class dotprods(base.VarArgsInstruction, base.DataInstruction):
                 flat_args += [x, y]
         base.Instruction.__init__(self, *flat_args)
 
-    @property
-    def arg_format(self):
+    @classmethod
+    def dynamic_arg_format(self, args):
         field = 'g' if self.is_gf2n() else ''
-        for i in self.bases():
-            yield 'int'
+        yield 'int'
+        for i, n in self.bases(args):
             yield 's' + field + 'w'
-            for j in range(self.args[i] - 2):
+            for j in range(n - 2):
                 yield 's' + field
+            yield 'int'
 
-    gf2n_arg_format = arg_format
-
-    def bases(self):
-        i = 0
-        while i < len(self.args):
-            yield i
-            i += self.args[i]
+    @property
+    def gf2n_arg_format(self):
+        return self.arg_format()
 
     def get_repeat(self):
-        return sum(self.args[i] // 2 for i in self.bases()) * self.get_size()
+        return sum(self.args[i] // 2
+                   for i, n in self.bases(iter(self.args))) * self.get_size()
 
     def get_def(self):
-        return [self.args[i + 1] for i in self.bases()]
+        return [self.args[i + 1] for i, n in self.bases(iter(self.args))]
 
     def get_used(self):
-        for i in self.bases():
+        for i, n in self.bases(iter(self.args)):
             for reg in self.args[i + 2:i + self.args[i]]:
                 yield reg
 
@@ -2369,18 +2441,76 @@ class sqrs(base.CISC):
         subml(self.args[0], s[5], c[1])
 
 
-@base.gf2n
-@base.vectorize
-class lts(base.CISC):
-    """ Secret comparison $s_i = (s_j < s_k)$. """
-    __slots__ = []
-    arg_format = ['sw', 's', 's', 'int', 'int']
+# placeholder for documentation
+class cisc:
+    """ Meta instruction for emulation. This instruction is only generated
+    when using ``-K`` with ``compile.py``. The header looks as follows:
 
-    def expand(self):
-        from .types import sint
-        a = sint()
-        subs(a, self.args[1], self.args[2])
-        comparison.LTZ(self.args[0], a, self.args[3], self.args[4])
+    :param: number of arguments after name plus one
+    :param: name (16 bytes, zero-padded)
+
+    Currently, the following names are supported:
+
+    LTZ
+      Less than zero.
+
+      :param: number of arguments in this unit (must be 6)
+      :param: vector size
+      :param: result (sint)
+      :param: input (sint)
+      :param: bit length
+      :param: (ignored)
+      :param: (repeat)...
+
+    Trunc
+      Truncation.
+
+      :param: number of arguments in this unit (must be 8)
+      :param: vector size
+      :param: result (sint)
+      :param: input (sint)
+      :param: bit length
+      :param: number of bits to truncate
+      :param: (ignored)
+      :param: 0 for unsigned or 1 for signed
+      :param: (repeat)...
+
+    FPDiv
+      Fixed-point division. Division by zero results in zero without error.
+
+      :param: number of arguments in this unit (must be at least 7)
+      :param: vector size
+      :param: result (sint)
+      :param: dividend (sint)
+      :param: divisor (sint)
+      :param: (ignored)
+      :param: fixed-point precision
+      :param: (repeat)...
+
+    exp2_fx
+      Fixed-point power of two.
+
+      :param: number of arguments in this unit (must be at least 6)
+      :param: vector size
+      :param: result (sint)
+      :param: exponent (sint)
+      :param: (ignored)
+      :param: fixed-point precision
+      :param: (repeat)...
+
+    log2_fx
+      Fixed-point logarithm with base 2.
+
+      :param: number of arguments in this unit (must be at least 6)
+      :param: vector size
+      :param: result (sint)
+      :param: input (sint)
+      :param: (ignored)
+      :param: fixed-point precision
+      :param: (repeat)...
+
+    """
+    code = base.opcodes['CISC']
 
 # hack for circular dependency
 from Compiler import comparison

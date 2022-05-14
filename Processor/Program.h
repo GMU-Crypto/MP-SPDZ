@@ -21,7 +21,7 @@ class Program
   unsigned max_reg[MAX_REG_TYPE];
 
   // Memory size used directly
-  unsigned max_mem[MAX_REG_TYPE];
+  size_t max_mem[MAX_REG_TYPE];
 
   // True if program contains variable-sized loop
   bool unknown_usage;
@@ -30,10 +30,10 @@ class Program
 
   public:
 
-  bool writes_persistance;
+  bool writes_persistence;
 
   Program(int nplayers) : offline_data_used(nplayers),
-      unknown_usage(false), writes_persistance(false)
+      unknown_usage(false), writes_persistence(false)
     { compute_constants(); }
 
   // Read in a program
@@ -48,7 +48,7 @@ class Program
   unsigned num_reg(RegType reg_type) const
     { return max_reg[reg_type]; }
 
-  unsigned direct_mem(RegType reg_type) const
+  size_t direct_mem(RegType reg_type) const
     { return max_mem[reg_type]; }
 
   friend ostream& operator<<(ostream& s,const Program& P);

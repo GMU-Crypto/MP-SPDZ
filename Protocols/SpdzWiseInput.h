@@ -8,6 +8,9 @@
 
 #include "ReplicatedInput.h"
 
+/**
+ * Honest-majority input protocol with MAC
+ */
 template<class T>
 class SpdzWiseInput : public InputBase<T>
 {
@@ -33,11 +36,8 @@ public:
     void reset(int player);
     void add_mine(const typename T::open_type& input, int n_bits = -1);
     void add_other(int player, int n_bits = -1);
-    void send_mine();
     void exchange();
     T finalize(int player, int n_bits = -1);
-    T finalize_mine();
-    void finalize_other(int player, T& target, octetStream& o, int n_bits = -1);
 };
 
 #endif /* PROTOCOLS_SPDZWISEINPUT_H_ */

@@ -27,7 +27,7 @@ public:
     static int check_args(const vector<int>& args, int n);
 
     template<class U>
-    static void check_input(const U& in, int n_bits);
+    static void check_input(const U& in, const int* params);
 
     Machine<T>* machine;
     Memories<T>& memories;
@@ -99,6 +99,9 @@ public:
             const vector<int>& args, int my_num);
 
     void reveal(const vector<int>& args);
+
+    template<int = 0>
+    void convcbit2s(const BaseInstruction& instruction);
 
     void print_reg(int reg, int n, int size);
     void print_reg_plain(Clear& value);

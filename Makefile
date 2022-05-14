@@ -12,7 +12,7 @@ PROCESSOR = $(patsubst %.cpp,%.o,$(wildcard Processor/*.cpp))
 FHEOBJS = $(patsubst %.cpp,%.o,$(wildcard FHEOffline/*.cpp FHE/*.cpp)) Protocols/CowGearOptions.o
 
 GC = $(patsubst %.cpp,%.o,$(wildcard GC/*.cpp)) $(PROCESSOR)
-GC_SEMI = GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
+GC_SEMI = GC/SemiPrep.o GC/square64.o
 
 OT = $(patsubst %.cpp,%.o,$(wildcard OT/*.cpp))
 OT_EXE = ot.x ot-offline.x
@@ -25,6 +25,8 @@ MINI_OT = OT/OTTripleSetup.o OT/BaseOT.o $(LIBSIMPLEOT)
 VMOBJS = $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o OT/OTTripleSetup.o OT/BaseOT.o $(LIBSIMPLEOT)
 VM = $(MINI_OT) $(SHAREDLIB)
 COMMON = $(SHAREDLIB)
+TINIER =  Machines/Tinier.o $(OT)
+SPDZ = Machines/SPDZ.o $(TINIER)
 
 
 LIB = libSPDZ.a
@@ -55,11 +57,11 @@ vm: arithmetic binary
 doc:
 	cd doc; $(MAKE) html
 
-arithmetic: rep-ring rep-field shamir semi2k-party.x semi-party.x mascot sy
+arithmetic: rep-ring rep-field shamir semi2k-party.x semi-party.x mascot sy dealer-ring-party.x
 binary: rep-bin yao semi-bin-party.x tinier-party.x tiny-party.x ccd-party.x malicious-ccd-party.x real-bmr
 
 all: overdrive she-offline
-arithmetic: hemi-party.x soho-party.x gear
+arithmetic: semi-he gear
 
 -include $(DEPS)
 include $(wildcard *.d static/*.d)
@@ -85,6 +87,7 @@ she-offline: Check-Offline.x spdz2-offline.x
 
 overdrive: simple-offline.x pairwise-offline.x cnc-offline.x gear
 gear: cowgear-party.x chaigear-party.x lowgear-party.x highgear-party.x
+semi-he: hemi-party.x soho-party.x temi-party.x
 
 rep-field: malicious-rep-field-party.x replicated-field-party.x ps-rep-field-party.x
 
@@ -97,15 +100,14 @@ replicated: rep-field rep-ring rep-bin
 spdz2k: spdz2k-party.x ot-offline.x Check-Offline-Z2k.x galois-degree.x Fake-Offline.x
 mascot: mascot-party.x spdz2k mama-party.x
 
-tldr:
-	-echo ARCH = -march=native >> CONFIG.mine
-	$(MAKE) mascot-party.x
-
 ifeq ($(OS), Darwin)
 tldr: mac-setup
 else
-tldr: mpir
+tldr: mpir linux-machine-setup
 endif
+
+tldr:
+	$(MAKE) mascot-party.x
 
 ifeq ($(MACHINE), aarch64)
 tldr: simde/simde
@@ -118,7 +120,7 @@ sy: sy-rep-field-party.x sy-rep-ring-party.x sy-shamir-party.x
 ecdsa: $(patsubst ECDSA/%.cpp,%.x,$(wildcard ECDSA/*-ecdsa-party.cpp)) Fake-ECDSA.x
 ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ecdsa-party.cpp))
 
-$(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(OT) $(GC)
+$(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
 
 CFLAGS += -fPIC
@@ -144,8 +146,6 @@ static-release: static-dir $(patsubst Machines/%.cpp, static/%.x, $(wildcard Mac
 Fake-ECDSA.x: ECDSA/Fake-ECDSA.cpp ECDSA/P256Element.o $(COMMON) Processor/PrepBase.o
 	$(CXX) -o $@ $^ $(CFLAGS) $(LDLIBS)
 
-Check-Offline.x: $(PROCESSOR)
-
 ot.x: $(OT) $(COMMON) Machines/OText_main.o Machines/OTMachine.o $(LIBSIMPLEOT)
 	$(CXX) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
@@ -162,7 +162,7 @@ bmr-%.x: $(BMR) $(VM) Machines/bmr-%.cpp $(LIBSIMPLEOT)
 bmr-clean:
 	-rm BMR/*.o BMR/*/*.o GC/*.o
 
-bankers-bonus-client.x: ExternalIO/bankers-bonus-client.cpp $(COMMON)
+bankers-bonus-client.x: ExternalIO/bankers-bonus-client.o $(COMMON)
 	$(CXX) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 simple-offline.x: $(FHEOFFLINE)
@@ -203,44 +203,49 @@ replicated-field-party.x: GC/square64.o
 brain-party.x: GC/square64.o
 malicious-rep-bin-party.x: GC/square64.o
 ps-rep-bin-party.x: GC/PostSacriBin.o
-semi-bin-party.x: $(OT) GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
+semi-bin-party.x: $(OT) GC/SemiPrep.o GC/square64.o
 tiny-party.x: $(OT)
 tinier-party.x: $(OT)
-spdz2k-party.x: $(OT) $(patsubst %.cpp,%.o,$(wildcard Machines/SPDZ2*.cpp))
+spdz2k-party.x: $(TINIER) $(patsubst %.cpp,%.o,$(wildcard Machines/SPDZ2*.cpp))
 static/spdz2k-party.x: $(patsubst %.cpp,%.o,$(wildcard Machines/SPDZ2*.cpp))
-semi-party.x: $(OT) GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
-semi2k-party.x: $(OT) GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
+semi-party.x: $(OT) GC/SemiPrep.o GC/square64.o
+semi2k-party.x: $(OT) GC/SemiPrep.o GC/square64.o
 hemi-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
+temi-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
 soho-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
-cowgear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(OT)
-chaigear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(OT)
-lowgear-party.x: $(FHEOFFLINE) $(OT) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
-highgear-party.x: $(FHEOFFLINE) $(OT) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
+cowgear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(TINIER)
+chaigear-party.x: $(FHEOFFLINE) Protocols/CowGearOptions.o $(TINIER)
+lowgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
+highgear-party.x: $(FHEOFFLINE) $(TINIER) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
 atlas-party.x: GC/AtlasSecret.o
 static/hemi-party.x: $(FHEOBJS)
+static/temi-party.x: $(FHEOBJS)
 static/soho-party.x: $(FHEOBJS)
 static/cowgear-party.x: $(FHEOBJS)
 static/chaigear-party.x: $(FHEOBJS)
 static/lowgear-party.x: $(FHEOBJS) Protocols/CowGearOptions.o Protocols/LowGearKeyGen.o
 static/highgear-party.x: $(FHEOBJS) Protocols/CowGearOptions.o Protocols/HighGearKeyGen.o
-mascot-party.x: Machines/SPDZ.o $(OT)
-static/mascot-party.x: Machines/SPDZ.o
-Player-Online.x: Machines/SPDZ.o $(OT)
-mama-party.x: $(OT)
+mascot-party.x: $(SPDZ)
+static/mascot-party.x: $(SPDZ)
+Player-Online.x: $(SPDZ)
+mama-party.x: $(TINIER)
 ps-rep-ring-party.x: Protocols/MalRepRingOptions.o
 malicious-rep-ring-party.x: Protocols/MalRepRingOptions.o
 sy-rep-ring-party.x: Protocols/MalRepRingOptions.o
 rep4-ring-party.x: GC/Rep4Secret.o
 no-party.x: Protocols/ShareInterface.o
-semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) GC/SemiPrep.o GC/SemiSecret.o
+semi-ecdsa-party.x: $(OT) $(LIBSIMPLEOT) GC/SemiPrep.o
 mascot-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 fake-spdz-ecdsa-party.x: $(OT) $(LIBSIMPLEOT)
 emulate.x: GC/FakeSecret.o
-semi-bmr-party.x: GC/SemiPrep.o GC/SemiSecret.o $(OT)
+semi-bmr-party.x: GC/SemiPrep.o $(OT)
 real-bmr-party.x: $(OT)
 paper-example.x: $(VM) $(OT) $(FHEOFFLINE)
-mascot-offline.x: $(VM) $(OT)
-cowgear-offline.x: $(OT) $(FHEOFFLINE)
+binary-example.x: $(VM) $(OT) GC/PostSacriBin.o GC/SemiPrep.o GC/AtlasSecret.o
+mixed-example.x: $(VM) $(OT) GC/PostSacriBin.o GC/SemiPrep.o GC/AtlasSecret.o Machines/Tinier.o
+l2h-example.x: $(VM) $(OT) Machines/Tinier.o
+mascot-offline.x: $(VM) $(TINIER)
+cowgear-offline.x: $(TINIER) $(FHEOFFLINE)
 static/rep-bmr-party.x: $(BMR)
 static/mal-rep-bmr-party.x: $(BMR)
 static/shamir-bmr-party.x: $(BMR)
@@ -249,6 +254,7 @@ static/semi-bmr-party.x: $(BMR)
 static/real-bmr-party.x: $(BMR)
 static/bmr-program-party.x: $(BMR)
 static/no-party.x: Protocols/ShareInterface.o
+Test/failure.x: Protocols/MalRepRingOptions.o
 
 ifeq ($(AVX_OT), 1)
 $(LIBSIMPLEOT): SimpleOT/Makefile
@@ -266,7 +272,7 @@ Programs/Circuits:
 
 .PHONY: mpir-setup mpir-global mpir
 mpir-setup:
-	git submodule update --init mpir
+	git submodule update --init mpir || git clone https://github.com/wbhart/mpir
 	cd mpir; \
 	autoreconf -i; \
 	autoreconf -i
@@ -285,14 +291,24 @@ mpir: mpir-setup
 	-echo MY_CFLAGS += -I./local/include >> CONFIG.mine
 	-echo MY_LDLIBS += -Wl,-rpath -Wl,$(CURDIR)/local/lib -L$(CURDIR)/local/lib >> CONFIG.mine
 
-mac-setup:
+mac-setup: mac-machine-setup
 	brew install openssl boost libsodium mpir yasm ntl
-	-echo MY_CFLAGS += -I/usr/local/opt/openssl/include >> CONFIG.mine
-	-echo MY_LDLIBS += -L/usr/local/opt/openssl/lib >> CONFIG.mine
-	-echo USE_NTL = 1 >> CONFIG.mine
+	-echo MY_CFLAGS += -I/usr/local/opt/openssl/include -I/opt/homebrew/opt/openssl/include -I/opt/homebrew/include >> CONFIG.mine
+	-echo MY_LDLIBS += -L/usr/local/opt/openssl/lib -L/opt/homebrew/lib -L/opt/homebrew/opt/openssl/lib >> CONFIG.mine
+#	-echo USE_NTL = 1 >> CONFIG.mine
+
+ifeq ($(MACHINE), aarch64)
+mac-machine-setup:
+	-echo ARCH = >> CONFIG.mine
+linux-machine-setup:
+	-echo ARCH = -march=armv8.2-a+crypto >> CONFIG.mine
+else
+mac-machine-setup:
+linux-machine-setup:
+endif
 
 simde/simde:
-	git submodule update --init simde
+	git submodule update --init simde || git clone https://github.com/simd-everywhere/simde
 
 clean:
 	-rm -f */*.o *.o */*.d *.d *.x core.* *.a gmon.out */*/*.o static/*.x *.so

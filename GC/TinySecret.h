@@ -49,6 +49,7 @@ public:
     static const bool dishonest_majority = T::dishonest_majority;
     static const bool variable_players = T::variable_players;
     static const bool needs_ot = T::needs_ot;
+    static const bool has_mac = T::has_mac;
     static const bool expensive_triples = false;
 
     static const int default_length = 64;
@@ -56,6 +57,11 @@ public:
     static int size()
     {
         return part_type::size() * default_length;
+    }
+
+    static void specification(octetStream& os)
+    {
+        T::specification(os);
     }
 
     static void read_or_generate_mac_key(string directory, const Player& P,
@@ -150,6 +156,17 @@ public:
         return this->get_reg(i);
     }
 
+    void xor_bit(size_t i, const T& bit)
+    {
+        if (i < this->get_regs().size())
+            XOR(this->get_reg(i), this->get_reg(i), bit);
+        else
+        {
+            this->resize_regs(i + 1);
+            this->get_reg(i) = bit;
+        }
+    }
+
     void output(ostream& s, bool human = true) const
     {
         assert(this->get_regs().size() == default_length);
@@ -178,6 +195,12 @@ public:
     void finalize_input(U& inputter, int from, int n_bits)
     {
         inputter.finalize(from, n_bits).mask(*this, n_bits);
+    }
+
+    void random_bit()
+    {
+        auto& thread = GC::ShareThread<typename T::whole_type>::s();
+        *this = thread.DataF.get_part().get_bit();
     }
 };
 

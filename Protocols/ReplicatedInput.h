@@ -10,6 +10,9 @@
 #include "Processor/Processor.h"
 #include "Replicated.h"
 
+/**
+ * Base class for input protocols without preprocessing
+ */
 template <class T>
 class PrepLessInput : public InputBase<T>
 {
@@ -33,6 +36,9 @@ public:
     T finalize_mine();
 };
 
+/**
+ * Replicated three-party input protocol
+ */
 template <class T>
 class ReplicatedInput : public PrepLessInput<T>
 {
@@ -66,9 +72,8 @@ public:
             PrepLessInput<T>(proc), proc(proc), P(P), protocol(P)
     {
         assert(T::length == 2);
-        InputBase<T>::P = &P;
-        InputBase<T>::os.resize(P.num_players());
         expect.resize(P.num_players());
+        this->reset_all(P);
     }
 
     void reset(int player);

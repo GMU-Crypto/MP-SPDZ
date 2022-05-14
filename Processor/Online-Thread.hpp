@@ -100,6 +100,9 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   processor = new Processor<sint, sgf2n>(tinfo->thread_num,P,*MC2,*MCp,machine,progs.at(thread_num > 0));
   auto& Proc = *processor;
 
+  // don't count communication for initialization
+  P.reset_stats();
+
   bool flag=true;
   int program=-3; 
   // int exec=0;
@@ -279,13 +282,16 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
           printf("\tSignalling I have finished\n");
 #endif
           wait_timer.start();
-          queues->finished(job);
+          queues->finished(job, P.total_comm());
 	 wait_timer.stop();
        }  
     }
 
   // final check
   Proc.check();
+
+  if (machine.opts.file_prep_per_thread)
+    Proc.DataF.prune();
 
   wait_timer.start();
   queues->next();
@@ -314,16 +320,10 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
 #endif
 
   // wind down thread by thread
-  auto prep_stats = Proc.DataF.comm_stats();
-  prep_stats += Proc.share_thread.DataF.comm_stats();
-  prep_stats += Proc.Procp.bit_prep.comm_stats();
-  for (auto& x : Proc.Procp.personal_bit_preps)
-    prep_stats += x->comm_stats();
   machine.stats += Proc.stats;
   delete processor;
 
-  machine.comm_stats += P.comm_stats + prep_stats;
-  queues->finished(actual_usage);
+  queues->finished(actual_usage, P.total_comm());
 
   delete MC2;
   delete MCp;
@@ -352,7 +352,7 @@ void* thread_info<sint, sgf2n>::Main_Func(void* ptr)
     catch (...)
     {
       thread_info<sint, sgf2n>* ti = (thread_info<sint, sgf2n>*)ptr;
-      ti->purge_preprocessing(ti->machine->get_N());
+      ti->purge_preprocessing(ti->machine->get_N(), ti->thread_num);
       throw;
     }
 #endif
@@ -361,13 +361,17 @@ void* thread_info<sint, sgf2n>::Main_Func(void* ptr)
 
 
 template<class sint, class sgf2n>
-void thread_info<sint, sgf2n>::purge_preprocessing(const Names& N)
+void thread_info<sint, sgf2n>::purge_preprocessing(const Names& N, int thread_num)
 {
   cerr << "Purging preprocessed data because something is wrong" << endl;
   try
   {
       Data_Files<sint, sgf2n> df(N);
       df.purge();
+      DataPositions pos;
+      Sub_Data_Files<typename sint::bit_type> bit_df(N, pos, thread_num);
+      bit_df.get_part();
+      bit_df.purge();
   }
   catch(...)
   {

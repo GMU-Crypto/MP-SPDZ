@@ -17,9 +17,13 @@ template<class T> class SubProcessor;
 template<class T> class MAC_Check_Base;
 class Player;
 
+/**
+ * Beaver multiplication
+ */
 template<class T>
 class Beaver : public ProtocolBase<T>
 {
+protected:
     vector<T> shares;
     vector<typename T::open_type> opened;
     vector<array<T, 3>> triples;
@@ -35,13 +39,16 @@ public:
 
     Beaver(Player& P) : prep(0), MC(0), P(P) {}
 
-    Player& branch();
+    typename T::Protocol branch();
 
-    void init_mul(SubProcessor<T>* proc);
-    void init_mul(Preprocessing<T>& prep, typename T::MAC_Check& MC);
-    typename T::clear prepare_mul(const T& x, const T& y, int n = -1);
+    void init(Preprocessing<T>& prep, typename T::MAC_Check& MC);
+
+    void init_mul();
+    void prepare_mul(const T& x, const T& y, int n = -1);
     void exchange();
     T finalize_mul(int n = -1);
+
+    void check();
 
     void start_exchange();
     void stop_exchange();

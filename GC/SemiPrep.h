@@ -26,7 +26,6 @@ class SemiPrep : public BufferPrep<SemiSecret>, ShiftableTripleBuffer<SemiSecret
     SeededPRNG secure_prng;
 
 public:
-    SemiPrep(DataPositions& usage, ShareThread<SemiSecret>& thread);
     SemiPrep(DataPositions& usage, bool = true);
     ~SemiPrep();
 
@@ -45,6 +44,8 @@ public:
 
     array<SemiSecret, 3> get_triple_no_count(int n_bits)
     {
+        if (n_bits == -1)
+            n_bits = SemiSecret::default_length;
         return ShiftableTripleBuffer<SemiSecret>::get_triple_no_count(n_bits);
     }
 
@@ -52,8 +53,6 @@ public:
     {
         throw not_implemented();
     }
-
-    NamedCommStats comm_stats();
 };
 
 } /* namespace GC */

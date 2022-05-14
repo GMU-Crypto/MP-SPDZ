@@ -6,6 +6,10 @@
 #ifndef PROTOCOLS_SPDZ2KSHARE_H_
 #define PROTOCOLS_SPDZ2KSHARE_H_
 
+#ifndef SPDZ2K_DEFAULT_SECURITY
+#define SPDZ2K_DEFAULT_SECURITY 64
+#endif
+
 #include "Math/Z2k.h"
 #include "Protocols/Share.h"
 #include "Protocols/MAC_Check.h"
@@ -14,6 +18,7 @@
 
 template<int K, int S> class Spdz2kMultiplier;
 template<class T> class Spdz2kTripleGenerator;
+template<class T> class SPDZ2k;
 
 namespace GC
 {
@@ -44,7 +49,7 @@ public:
     typedef MAC_Check Direct_MC;
     typedef ::Input<Spdz2kShare> Input;
     typedef ::PrivateOutput<Spdz2kShare> PrivateOutput;
-    typedef SPDZ<Spdz2kShare> Protocol;
+    typedef SPDZ2k<Spdz2kShare> Protocol;
     typedef Spdz2kPrep<Spdz2kShare> LivePrep;
 
 #ifndef NO_MIXED_CIRCUITS

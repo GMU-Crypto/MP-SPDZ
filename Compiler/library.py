@@ -12,6 +12,7 @@ import inspect,math
 import random
 import collections
 import operator
+import copy
 from functools import reduce
 
 def get_program():
@@ -219,7 +220,10 @@ def crash(condition=None):
     :param condition: crash if true (default: true)
 
     """
-    if condition == None:
+    if isinstance(condition, localint):
+        # allow crash on local values
+        condition = condition._v
+    if condition is None:
         condition = regint(1)
     instructions.crash(regint.conv(condition))
 
@@ -280,8 +284,8 @@ def get_arg():
 
 def make_array(l):
     if isinstance(l, program.Tape.Register):
-        res = Array(1, type(l))
-        res[0] = l
+        res = Array(len(l), type(l))
+        res[:] = l
     else:
         l = list(l)
         res = Array(len(l), type(l[0]) if l else cint)
@@ -1028,12 +1032,15 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                 state = tuplify(initializer())
                 k = 0
                 block = get_block()
+                assert not isinstance(n_loops, int) or n_loops > 0
+                pre = copy.copy(loop_body.__globals__)
                 while (not util.is_constant(n_loops) or k < n_loops) \
                       and (len(get_block()) < budget or k == 0) \
                       and block is get_block():
                     j = i + k
                     state = reducer(tuplify(loop_body(j)), state)
                     k += 1
+                _link(pre, loop_body.__globals__)
                 r = reducer(mem_state, state)
                 write_state_to_memory(r)
                 global n_opt_loops
@@ -1142,6 +1149,7 @@ def multithread(n_threads, n_items=None, max_size=None):
 
     :param n_threads: compile-time (int)
     :param n_items: regint/cint/int (default: :py:obj:`n_threads`)
+    :param max_size: maximum size to be processed at once (default: no limit)
 
     The following executes ``f(0, 8)``, ``f(8, 8)``, and
     ``f(16, 9)`` in three different threads:
@@ -1205,7 +1213,13 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
             if t != regint:
                 raise CompilerError('Not implemented for other than regint')
         args = Matrix(n_threads, 2 + thread_mem_req.get(regint, 0), 'ci')
-        state = tuple(initializer())
+        state = initializer()
+        if len(state) == 0:
+            state_type = cint
+        elif isinstance(state, (tuple, list)):
+            state_type = type(state[0])
+        else:
+            state_type = type(state)
         def f(inc):
             base = args[get_arg()][0]
             if not util.is_constant(thread_rounds):
@@ -1218,8 +1232,7 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
             if thread_mem_req:
                 thread_mem = Array(thread_mem_req[regint], regint, \
                                        args[get_arg()].address + 2)
-            mem_state = Array(len(state), type(state[0]) \
-                                  if state else cint, args[get_arg()][1])
+            mem_state = Array(len(state), state_type, args[get_arg()][1])
             @map_reduce_single(n_parallel, thread_rounds + inc, \
                                    initializer, reducer, mem_state)
             def f(i):
@@ -1251,14 +1264,14 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
         threads = prog.run_tapes(thread_args)
         for thread in threads:
             prog.join_tape(thread)
-        if state:
+        if len(state):
             if thread_rounds:
                 for i in range(n_threads - remainder):
-                    state = reducer(Array(len(state), type(state[0]), \
+                    state = reducer(Array(len(state), state_type, \
                                               args[remainder + i][1]), state)
             if remainder:
                 for i in range(remainder):
-                    state = reducer(Array(len(state), type(state[0]).reg_type, \
+                    state = reducer(Array(len(state), state_type, \
                                               args[i][1]), state)
         def returner():
             return untuplify(state)
@@ -1294,7 +1307,50 @@ def map_sum_opt(n_threads, n_loops, types):
     """
     return map_sum(n_threads, None, n_loops, len(types), types)
 
+def map_sum_simple(n_threads, n_loops, type, size):
+    """ Vectorized multi-threaded sum reduction. The following computes a
+    100 sums of ten squares in three threads::
+
+        @map_sum_simple(3, 10, sint, 100)
+        def summer(i):
+            return sint(regint.inc(100, i, 0)) ** 2
+
+        result = summer()
+
+    :param n_threads: number of threads (int)
+    :param n_loops: number of loop runs (regint/cint/int)
+    :param type: return type, must match the return statement
+        in the loop
+    :param size: vector size, must match the return statement
+        in the loop
+
+    """
+    initializer = lambda: type(0, size=size)
+    def summer(*args):
+        assert len(args) == 2
+        args = list(args)
+        for i in (0, 1):
+            if isinstance(args[i], tuple):
+                assert len(args[i]) == 1
+                args[i] = args[i][0]
+        for i in (0, 1):
+            assert len(args[i]) == size
+            if isinstance(args[i], Array):
+                args[i] = args[i][:]
+        return args[0] + args[1]
+    return map_reduce(n_threads, 1, n_loops, initializer, summer)
+
 def tree_reduce_multithread(n_threads, function, vector):
+    """ Round-efficient reduction in several threads. The following code
+    computes the maximum of an array in 10 threads::
+
+      tree_reduce_multithread(10, lambda x, y: x.max(y), a)
+
+    :param n_threads: number of threads (int)
+    :param function: reduction function taking exactly two arguments
+    :param vector: register vector or array
+
+    """
     inputs = vector.Array(len(vector))
     inputs.assign_vector(vector)
     outputs = vector.Array(len(vector) // 2)
@@ -1310,6 +1366,18 @@ def tree_reduce_multithread(n_threads, function, vector):
             inputs[left // 2] = inputs[left - 1]
         left = (left + 1) // 2
     return inputs[0]
+
+def tree_reduce(function, sequence):
+    """ Round-efficient reduction. The following computes the maximum
+    of the list :py:obj:`l`::
+
+      m = tree_reduce(lambda x, y: x.max(y), l)
+
+    :param function: reduction function taking two arguments
+    :param sequence: list, vector, or array
+
+    """
+    return util.tree_reduce(function, sequence)
 
 def foreach_enumerate(a):
     """ Run-time loop over public data. This uses
@@ -1347,6 +1415,8 @@ def while_loop(loop_body, condition, arg, g=None):
         arg = regint(arg)
         def loop_fn():
             result = loop_body(arg)
+            if isinstance(result, MemValue):
+                result = result.read()
             result.link(arg)
             cont = condition(result)
             return cont
@@ -1390,9 +1460,12 @@ def do_loop(condition, loop_fn):
 def _run_and_link(function, g=None):
     if g is None:
         g = function.__globals__
-    import copy
     pre = copy.copy(g)
     res = function()
+    _link(pre, g)
+    return res
+
+def _link(pre, g):
     if g:
         from .types import _single
         for name, var in pre.items():
@@ -1402,7 +1475,6 @@ def _run_and_link(function, g=None):
                     raise CompilerError('cannot reassign constants in blocks')
                 if id(new_var) != id(var):
                     new_var.link(var)
-    return res
 
 def do_while(loop_fn, g=None):
     """ Do-while loop. The loop is stopped if the return value is zero.
@@ -1531,6 +1603,8 @@ def if_(condition):
 def if_e(condition):
     """
     Conditional execution with else block.
+    Use :py:class:`~Compiler.types.MemValue` to assign values that
+    live beyond.
 
     :param condition: regint/cint/int
 
@@ -1538,12 +1612,13 @@ def if_e(condition):
 
     .. code::
 
+        y = MemValue(0)
         @if_e(x > 0)
         def _():
-            ...
+            y.write(1)
         @else_
         def _():
-            ...
+            y.write(0)
     """
     try:
         condition = bool(condition)
@@ -1647,11 +1722,18 @@ def get_player_id():
     return res
 
 def listen_for_clients(port):
-    """ Listen for clients on specific port. """
+    """ Listen for clients on specific port base.
+
+    :param port: port base (int/regint/cint)
+    """
     instructions.listen(regint.conv(port))
 
 def accept_client_connection(port):
-    """ Listen for clients on specific port. """
+    """ Accept client connection on specific port base.
+
+    :param port: port base (int/regint/cint)
+    :returns: client id
+    """
     res = regint()
     instructions.acceptclientconnection(res, regint.conv(port))
     return res
@@ -1779,7 +1861,8 @@ def sint_cint_division(a, b, k, f, kappa):
     return (sign_a * sign_b) * A
 
 def IntDiv(a, b, k, kappa=None):
-    return FPDiv(a.extend(2 * k) << k, b.extend(2 * k) << k, 2 * k, k,
+    l = 2 * k + 1
+    return FPDiv(a.extend(l) << k, b.extend(l) << k, l, k,
                  kappa, nearest=True)
 
 @instructions_base.ret_cisc
@@ -1806,19 +1889,20 @@ def FPDiv(a, b, k, f, kappa, simplex_flag=False, nearest=False):
     x = alpha - b.extend(2 * k) * w
     base.reset_global_vector_size()
 
-    y = a.extend(2 *k) * w
-    y = y.round(2*k, f, kappa, nearest, signed=True)
+    l_y = k + 3 * f - res_f
+    y = a.extend(l_y) * w
+    y = y.round(l_y, f, kappa, nearest, signed=True)
 
     for i in range(theta - 1):
         x = x.extend(2 * k)
-        y = y.extend(2 * k) * (alpha + x).extend(2 * k)
+        y = y.extend(l_y) * (alpha + x).extend(l_y)
         x = x * x
-        y = y.round(2*k, 2*f, kappa, nearest, signed=True)
+        y = y.round(l_y, 2*f, kappa, nearest, signed=True)
         x = x.round(2*k, 2*f, kappa, nearest, signed=True)
 
     x = x.extend(2 * k)
-    y = y.extend(2 * k) * (alpha + x).extend(2 * k)
-    y = y.round(k + 3 * f - res_f, 3 * f - res_f, kappa, nearest, signed=True)
+    y = y.extend(l_y) * (alpha + x).extend(l_y)
+    y = y.round(l_y, 3 * f - res_f, kappa, nearest, signed=True)
     return y
 
 def AppRcr(b, k, f, kappa=None, simplex_flag=False, nearest=False):

@@ -8,6 +8,9 @@
 
 #include "Protocols/Replicated.h"
 
+/**
+ * Protocol with optimistic multiplication and postponed sacrifice
+ */
 template<class T>
 class PostSacrifice : public ProtocolBase<T>
 {
@@ -27,8 +30,8 @@ public:
 
     Player& branch();
 
-    void init_mul(SubProcessor<T>* proc);
-    typename T::clear prepare_mul(const T& x, const T& y, int n = -1);
+    void init_mul();
+    void prepare_mul(const T& x, const T& y, int n = -1);
     void exchange() { internal.exchange(); }
     T finalize_mul(int n = -1);
 

@@ -3,6 +3,9 @@
  *
  */
 
+#ifndef GC_REPPREP_HPP_
+#define GC_REPPREP_HPP_
+
 #include "RepPrep.h"
 #include "ShareThread.h"
 #include "Processor/OnlineOptions.h"
@@ -15,13 +18,6 @@
 
 namespace GC
 {
-
-template<class T>
-RepPrep<T>::RepPrep(DataPositions& usage, ShareThread<T>& thread) :
-        RepPrep<T>(usage)
-{
-    (void) thread;
-}
 
 template<class T>
 RepPrep<T>::RepPrep(DataPositions& usage, int input_player) :
@@ -105,3 +101,5 @@ void RepPrep<T>::buffer_inputs(int player)
 }
 
 } /* namespace GC */
+
+#endif

@@ -14,6 +14,7 @@ using namespace std;
 template<class sint, class sgf2n> class Machine;
 template<class sint, class sgf2n> class Processor;
 class ArithmeticProcessor;
+class SwitchableOutput;
 
 /* 
  * Opcode constants
@@ -105,6 +106,7 @@ enum
     MATMULSM = 0xAB,
     CONV2DS = 0xAC,
     CHECK = 0xAF,
+    PRIVATEOUTPUT = 0xAD,
     // Data access
     TRIPLE = 0x50,
     BIT = 0x51,
@@ -126,6 +128,7 @@ enum
     INPUTMIXEDREG = 0xF3,
     RAWINPUT = 0xF4,
     INPUTPERSONAL = 0xF5,
+    SENDPERSONAL = 0xF6,
     STARTINPUT = 0x61,
     STOPINPUT = 0x62,
     READSOCKETC = 0x63,
@@ -306,12 +309,6 @@ enum RegType {
   MAX_REG_TYPE,
 };
 
-enum SecrecyType {
-  SECRET,
-  CLEAR,
-  MAX_SECRECY_TYPE
-};
-
 template<class sint, class sgf2n>
 struct TempVars {
   typename sgf2n::clear ans2;
@@ -331,14 +328,14 @@ protected:
   int opcode;         // The code
   int size;           // Vector size
   int r[4];           // Fixed parameter registers
-  unsigned int n;     // Possible immediate value
+  size_t n;             // Possible immediate value
   vector<int>  start; // Values for a start/stop open
 
 public:
   virtual ~BaseInstruction() {};
 
   int get_r(int i) const { return r[i]; }
-  unsigned int get_n() const { return n; }
+  size_t get_n() const { return n; }
   const vector<int>& get_start() const { return start; }
   int get_opcode() const { return opcode; }
   int get_size() const { return size; }
@@ -353,7 +350,7 @@ public:
   bool is_direct_memory_access() const;
 
   // Returns the memory size used if applicable and known
-  unsigned get_mem(RegType reg_type) const;
+  size_t get_mem(RegType reg_type) const;
 
   // Returns the maximal register used
   unsigned get_max_reg(int reg_type) const;
@@ -387,6 +384,10 @@ public:
 
   void shuffle(ArithmeticProcessor& Proc) const;
   void bitdecint(ArithmeticProcessor& Proc) const;
+
+  template<class T>
+  void print(SwitchableOutput& out, T* v, T* p = 0, T* s = 0, T* z = 0,
+      T* nan = 0) const;
 };
 
 #endif

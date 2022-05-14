@@ -142,8 +142,8 @@ TripleMachine::TripleMachine(int argc, const char** argv) :
         gfpvar1::init_field(prime, false);
     else
         gfpvar1::init_default(128, false);
-    gf2n_long::init_field(128);
-    gf2n_short::init_field(40);
+    gf2n_long::init_field();
+    gf2n_short::init_field();
     
     PRNG G;
     G.ReSeed();
@@ -158,8 +158,8 @@ GeneratorThread* TripleMachine::new_generator(OTTripleSetup& setup, int i,
 {
     if (output and i == 0)
     {
-        T::clear::template generate_setup<T>(PREP_DIR, nplayers, 128);
         prep_data_dir = get_prep_sub_dir<T>(PREP_DIR, nplayers);
+        T::clear::write_setup(prep_data_dir);
         write_mac_key(prep_data_dir, my_num, nplayers, mac_key);
     }
 

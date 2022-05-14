@@ -59,6 +59,8 @@ void BaseMachine::load_schedule(const string& progname, bool load_bytecode)
   cerr << "Number of program sequences I need to load = " << nprogs << endl;
 #endif
 
+  bc_filenames.clear();
+
   // Load in the programs
   string threadname;
   for (int i=0; i<nprogs; i++)
@@ -110,22 +112,31 @@ void BaseMachine::time()
 void BaseMachine::start(int n)
 {
   cout << "Starting timer " << n << " at " << timer[n].elapsed()
+    << " (" << timer[n].mb_sent() << " MB)"
     << " after " << timer[n].idle() << endl;
-  timer[n].start();
+  timer[n].start(total_comm());
 }
 
 void BaseMachine::stop(int n)
 {
-  timer[n].stop();
-  cout << "Stopped timer " << n << " at " << timer[n].elapsed() << endl;
+  timer[n].stop(total_comm());
+  cout << "Stopped timer " << n << " at " << timer[n].elapsed() << " ("
+      << timer[n].mb_sent() << " MB)" << endl;
 }
 
 void BaseMachine::print_timers()
 {
+  cerr << "The following timing is ";
+  if (OnlineOptions::singleton.live_prep)
+    cerr << "in";
+  else
+    cerr << "ex";
+  cerr << "clusive preprocessing." << endl;
   cerr << "Time = " << timer[0].elapsed() << " seconds " << endl;
   timer.erase(0);
-  for (map<int,Timer>::iterator it = timer.begin(); it != timer.end(); it++)
-    cerr << "Time" << it->first << " = " << it->second.elapsed() << " seconds " << endl;
+  for (auto it = timer.begin(); it != timer.end(); it++)
+    cerr << "Time" << it->first << " = " << it->second.elapsed() << " seconds ("
+        << it->second.mb_sent() << " MB)" << endl;
 }
 
 string BaseMachine::memory_filename(const string& type_short, int my_number)
@@ -169,4 +180,19 @@ bigint BaseMachine::prime_from_schedule(string progname)
     return bigint(domain.substr(2));
   else
     return 0;
+}
+
+NamedCommStats BaseMachine::total_comm()
+{
+  NamedCommStats res;
+  for (auto& queue : queues)
+    res += queue->get_comm_stats();
+  return res;
+}
+
+void BaseMachine::set_thread_comm(const NamedCommStats& stats)
+{
+  auto queue = queues.at(BaseMachine::thread_num);
+  assert(queue);
+  queue->set_comm_stats(stats);
 }

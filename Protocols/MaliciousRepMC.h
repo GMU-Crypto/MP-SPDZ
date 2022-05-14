@@ -30,6 +30,9 @@ public:
     }
 };
 
+/**
+ * 3-party replicated opening with checking via hash
+ */
 template<class T>
 class HashMaliciousRepMC : public MaliciousRepMC<T>
 {
@@ -46,11 +49,11 @@ class HashMaliciousRepMC : public MaliciousRepMC<T>
 
 public:
     // emulate MAC_Check
-    HashMaliciousRepMC(const typename T::value_type& _, int __ = 0, int ___ = 0) : HashMaliciousRepMC()
+    HashMaliciousRepMC(const typename T::mac_key_type& _, int __ = 0, int ___ = 0) : HashMaliciousRepMC()
     { (void)_; (void)__; (void)___; }
 
     // emulate Direct_MAC_Check
-    HashMaliciousRepMC(const typename T::value_type& _, Names& ____, int __ = 0, int ___ = 0) : HashMaliciousRepMC()
+    HashMaliciousRepMC(const typename T::mac_key_type& _, Names& ____, int __ = 0, int ___ = 0) : HashMaliciousRepMC()
     { (void)_; (void)__; (void)___; (void)____; }
 
     HashMaliciousRepMC();
@@ -59,7 +62,7 @@ public:
     void POpen(vector<typename T::open_type>& values,const vector<T>& S,const Player& P);
     void POpen_End(vector<typename T::open_type>& values,const vector<T>& S,const Player& P);
 
-    virtual typename T::open_type finalize_open();
+    virtual typename T::open_type finalize_raw();
 
     void CheckFor(const typename T::open_type& value, const vector<T>& shares, const Player& P);
 

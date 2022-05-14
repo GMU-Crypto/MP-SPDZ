@@ -89,15 +89,15 @@ U GC::Processor<T>::get_long_input(const int* params,
     else
         res = input_proc.get_input<FixInput_<U>>(interactive,
                 &params[1]).items[0];
-    int n_bits = *params;
-    check_input(res, n_bits);
+    check_input(res, params);
     return res;
 }
 
 template<class T>
 template<class U>
-void GC::Processor<T>::check_input(const U& in, int n_bits)
+void GC::Processor<T>::check_input(const U& in, const int* params)
 {
+	int n_bits = *params;
 	auto test = in >> (n_bits - 1);
 	if (n_bits == 1)
 	{
@@ -106,9 +106,17 @@ void GC::Processor<T>::check_input(const U& in, int n_bits)
 	}
 	else if (not (test == 0 or test == -1))
 	{
-		throw runtime_error(
-				"input too large for a " + std::to_string(n_bits)
-						+ "-bit signed integer: " + to_string(in));
+		if (params[1] == 0)
+			throw runtime_error(
+					"input out of range for a " + std::to_string(n_bits)
+							+ "-bit signed integer: " + to_string(in));
+		else
+			throw runtime_error(
+					"input out of range for a " + to_string(n_bits)
+							+ "-bit fixed-point number with "
+							+ to_string(params[1]) + "-bit precision: "
+							+ to_string(
+									mpf_class(bigint(in)) * exp2(-params[1])));
 	}
 }
 
@@ -321,6 +329,18 @@ void Processor<T>::reveal(const vector<int>& args)
             S[r1 + i].reveal(min(Clear::N_BITS, n - i * Clear::N_BITS),
                     C[r0 + i]);
     }
+}
+
+template <class T>
+template <int>
+void Processor<T>::convcbit2s(const BaseInstruction& instruction)
+{
+    int unit = GC::Clear::N_BITS;
+    auto& share_thread = ShareThread<T>::s();
+    for (int i = 0; i < DIV_CEIL(instruction.get_n(), unit); i++)
+        S[instruction.get_r(0) + i] = T::constant(C[instruction.get_r(1) + i],
+                share_thread.P->my_num(), share_thread.MC->get_alphai(),
+                min(size_t(unit), instruction.get_n() - i * unit));
 }
 
 template <class T>

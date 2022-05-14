@@ -4,9 +4,8 @@
 #include "Processor/Processor.h"
 #include "Processor/Program.h"
 #include "GC/square64.h"
+#include "SpecificPrivateOutput.h"
 
-#include "Protocols/ReplicatedInput.hpp"
-#include "Protocols/ReplicatedPrivateOutput.hpp"
 #include "Processor/ProcessorBase.hpp"
 #include "GC/Processor.hpp"
 #include "GC/ShareThread.hpp"
@@ -28,8 +27,8 @@ SubProcessor<T>::SubProcessor(typename T::MAC_Check& MC,
     bit_prep(bit_usage)
 {
   DataF.set_proc(this);
+  protocol.init(DataF, MC);
   DataF.set_protocol(protocol);
-  protocol.init_mul(this);
   bit_usage.set_num_players(P.num_players());
   personal_bit_preps.resize(P.num_players());
   for (int i = 0; i < P.num_players(); i++)
@@ -39,22 +38,12 @@ SubProcessor<T>::SubProcessor(typename T::MAC_Check& MC,
 template<class T>
 SubProcessor<T>::~SubProcessor()
 {
-  protocol.check();
-
   for (size_t i = 0; i < personal_bit_preps.size(); i++)
     {
       auto& x = personal_bit_preps[i];
-#ifdef VERBOSE
-      if (x->data_sent())
-        cerr << "Sent for personal bit preprocessing threads of player " << i << ": " <<
-              x->data_sent() * 1e-6 << " MB" << endl;
-#endif
       delete x;
     }
 #ifdef VERBOSE
-  if (bit_prep.data_sent())
-    cerr << "Sent for global bit preprocessing threads: " <<
-        bit_prep.data_sent() * 1e-6 << " MB" << endl;
   if (not bit_usage.empty())
     {
       cerr << "Mixed-circuit preprocessing cost:" << endl;
@@ -70,10 +59,9 @@ Processor<sint, sgf2n>::Processor(int thread_num,Player& P,
         const Program& program)
 : ArithmeticProcessor(machine.opts, thread_num),DataF(machine, &Procp, &Proc2),P(P),
   MC2(MC2),MCp(MCp),machine(machine),
-  share_thread(machine.get_N(), machine.opts, P, machine.get_bit_mac_key(), DataF.usage),
+  share_thread(DataF.DataFb, P, machine.get_bit_mac_key()),
   Procb(machine.bit_memories),
   Proc2(*this,MC2,DataF.DataF2,P),Procp(*this,MCp,DataF.DataFp,P),
-  privateOutput2(Proc2),privateOutputp(Procp),
   external_clients(P.my_num()),
   binary_file_io(Binary_File_IO())
 {
@@ -84,7 +72,6 @@ Processor<sint, sgf2n>::Processor(int thread_num,Player& P,
   private_input_filename = (get_filename(PREP_DIR "Private-Input-",true));
   private_input.open(private_input_filename.c_str());
   public_output.open(get_filename(PREP_DIR "Public-Output-",true).c_str(), ios_base::out);
-  private_output.open(get_filename(PREP_DIR "Private-Output-",true).c_str(), ios_base::out);
   binary_output.open(
       get_parameterized_filename(P.my_num(), thread_num,
           PREP_DIR "Binary-Output"), ios_base::out);
@@ -94,21 +81,8 @@ Processor<sint, sgf2n>::Processor(int thread_num,Player& P,
   secure_prng.ReSeed();
   shared_prng.SeedGlobally(P, false);
 
-  // only output on party 0 if not interactive
-  bool always_stdout = machine.opts.cmd_private_output_file == ".";
-  bool output = P.my_num() == 0 or machine.opts.interactive or always_stdout;
-  out.activate(output);
-  Procb.out.activate(output);
-
-  if (not always_stdout)
-    setup_redirection(P.my_num(), thread_num, opts);
-
-  if (stdout_redirect_file.is_open())
-  {
-    out.redirect_to_file(stdout_redirect_file);
-    Procb.out.redirect_to_file(stdout_redirect_file);
-  }
-
+  setup_redirection(P.my_num(), thread_num, opts, out);
+  Procb.out = out;
 }
 
 
@@ -233,17 +207,6 @@ void Processor<sint, sgf2n>::convcintvec(const Instruction& instruction)
 }
 
 template<class sint, class sgf2n>
-void Processor<sint, sgf2n>::convcbit2s(const Instruction& instruction)
-{
-  int unit = GC::Clear::N_BITS;
-  for (int i = 0; i < DIV_CEIL(instruction.get_n(), unit); i++)
-    Procb.S[instruction.get_r(0) + i] = sint::bit_type::constant(
-        Procb.C[instruction.get_r(1) + i], P.my_num(),
-        share_thread.MC->get_alphai(),
-        min(unsigned(unit), instruction.get_n() - i * unit));
-}
-
-template<class sint, class sgf2n>
 void Processor<sint, sgf2n>::split(const Instruction& instruction)
 {
   int n = instruction.get_n();
@@ -266,8 +229,9 @@ void Processor<sint, sgf2n>::split(const Instruction& instruction)
 // If message_type is > 0, send message_type in bytes 0 - 3, to allow an external client to
 //  determine the data structure being sent in a message.
 template<class sint, class sgf2n>
-void Processor<sint, sgf2n>::write_socket(const RegType reg_type, int socket_id,
-    int message_type, const vector<int>& registers, int size)
+void Processor<sint, sgf2n>::write_socket(const RegType reg_type,
+    bool send_macs, int socket_id, int message_type,
+    const vector<int>& registers, int size)
 {
   int m = registers.size();
   socket_stream.reset_write_head();
@@ -283,9 +247,12 @@ void Processor<sint, sgf2n>::write_socket(const RegType reg_type, int socket_id,
         {
           if (reg_type == SINT)
             {
-              // Send vector of secret shares
-              get_Sp_ref(registers[i] + j).pack(socket_stream,
-                  sint::get_rec_factor(P.my_num(), P.num_players()));
+              // Send vector of secret shares and optionally macs
+              if (send_macs)
+                get_Sp_ref(registers[i] + j).pack(socket_stream);
+              else
+                get_Sp_ref(registers[i] + j).pack(socket_stream,
+                    sint::get_rec_factor(P.my_num(), P.num_players()));
             }
           else if (reg_type == CINT)
             {
@@ -400,7 +367,9 @@ void Processor<sint, sgf2n>::read_shares_from_file(int start_file_posn, int end_
 
 // Append share data in data_registers to end of file. Expects Persistence directory to exist.
 template<class sint, class sgf2n>
-void Processor<sint, sgf2n>::write_shares_to_file(const vector<int>& data_registers) {
+void Processor<sint, sgf2n>::write_shares_to_file(long start_pos,
+    const vector<int>& data_registers)
+{
   string filename = binary_file_io.filename(P.my_num());
 
   unsigned int size = data_registers.size();
@@ -412,7 +381,7 @@ void Processor<sint, sgf2n>::write_shares_to_file(const vector<int>& data_regist
     inpbuf[i] = get_Sp_ref(data_registers[i]);
   }
 
-  binary_file_io.write_to_file(filename, inpbuf);
+  binary_file_io.write_to_file(filename, inpbuf, start_pos);
 }
 
 template <class T>
@@ -443,7 +412,7 @@ void SubProcessor<T>::muls(const vector<int>& reg, int size)
     int n = reg.size() / 3;
 
     SubProcessor<T>& proc = *this;
-    protocol.init_mul(&proc);
+    protocol.init_mul();
     for (int i = 0; i < n; i++)
         for (int j = 0; j < size; j++)
         {
@@ -468,7 +437,7 @@ void SubProcessor<T>::mulrs(const vector<int>& reg)
     int n = reg.size() / 4;
 
     SubProcessor<T>& proc = *this;
-    protocol.init_mul(&proc);
+    protocol.init_mul();
     for (int i = 0; i < n; i++)
         for (int j = 0; j < reg[4 * i]; j++)
         {
@@ -490,7 +459,7 @@ void SubProcessor<T>::mulrs(const vector<int>& reg)
 template<class T>
 void SubProcessor<T>::dotprods(const vector<int>& reg, int size)
 {
-    protocol.init_dotprod(this);
+    protocol.init_dotprod();
     for (int i = 0; i < size; i++)
     {
         auto it = reg.begin();
@@ -522,7 +491,7 @@ void SubProcessor<T>::dotprods(const vector<int>& reg, int size)
 
 template<class T>
 void SubProcessor<T>::matmuls(const vector<T>& source,
-        const Instruction& instruction, int a, int b)
+        const Instruction& instruction, size_t a, size_t b)
 {
     auto& dim = instruction.get_start();
     auto A = source.begin() + a;
@@ -532,7 +501,7 @@ void SubProcessor<T>::matmuls(const vector<T>& source,
     assert(B + dim[1] * dim[2] <= source.end());
     assert(C + dim[0] * dim[2] <= S.end());
 
-    protocol.init_dotprod(this);
+    protocol.init_dotprod();
     for (int i = 0; i < dim[0]; i++)
         for (int j = 0; j < dim[2]; j++)
         {
@@ -549,14 +518,14 @@ void SubProcessor<T>::matmuls(const vector<T>& source,
 
 template<class T>
 void SubProcessor<T>::matmulsm(const CheckVector<T>& source,
-        const Instruction& instruction, int a, int b)
+        const Instruction& instruction, size_t a, size_t b)
 {
     auto& dim = instruction.get_start();
     auto C = S.begin() + (instruction.get_r(0));
     assert(C + dim[0] * dim[2] <= S.end());
     assert(Proc);
 
-    protocol.init_dotprod(this);
+    protocol.init_dotprod();
     for (int i = 0; i < dim[0]; i++)
     {
         auto ii = Proc->get_Ci().at(dim[3] + i);
@@ -582,7 +551,7 @@ void SubProcessor<T>::matmulsm(const CheckVector<T>& source,
 template<class T>
 void SubProcessor<T>::conv2ds(const Instruction& instruction)
 {
-    protocol.init_dotprod(this);
+    protocol.init_dotprod();
     auto& args = instruction.get_start();
     int output_h = args[0], output_w = args[1];
     int inputs_h = args[2], inputs_w = args[3];
@@ -682,38 +651,43 @@ void SubProcessor<T>::input_personal(const vector<int>& args)
       S[args[i + 2] + j] = input.finalize(args[i + 1]);
 }
 
+template<class T>
+void SubProcessor<T>::private_output(const vector<int>& args)
+{
+  typename T::PrivateOutput output(*this);
+  for (size_t i = 0; i < args.size(); i += 4)
+    for (int j = 0; j < args[i]; j++)
+      {
+        int player = args[i + 1];
+        output.prepare_sending(S.at(args[i + 3] + j), player);
+      }
+  output.exchange();
+  for (size_t i = 0; i < args.size(); i += 4)
+    for (int j = 0; j < args[i]; j++)
+      C.at(args[i + 2] + j) = output.finalize(args[i + 1]);
+}
+
+template<class T>
+void SubProcessor<T>::send_personal(const vector<int>& args)
+{
+  octetStreams to_send(P), to_receive(P);
+  for (size_t i = 0; i < args.size(); i += 5)
+    if (args[i + 3] == P.my_num())
+        for (int j = 0; j < args[i]; j++)
+          C[args[i + 4] + j].pack(to_send[args[i + 1]]);
+  P.send_receive_all(to_send, to_receive);
+  for (size_t i = 0; i < args.size(); i += 5)
+    if (args[i + 1] == P.my_num())
+        for (int j = 0; j < args[i]; j++)
+          C[args[i + 2] + j].unpack(to_receive[args[i + 3]]);
+}
+
 template<class sint, class sgf2n>
 typename sint::clear Processor<sint, sgf2n>::get_inverse2(unsigned m)
 {
   for (unsigned i = inverses2m.size(); i <= m; i++)
     inverses2m.push_back((cint(1) << i).invert());
   return inverses2m[m];
-}
-
-template<class sint, class sgf2n>
-ostream& operator<<(ostream& s,const Processor<sint, sgf2n>& P)
-{
-  s << "Processor State" << endl;
-  s << "Char 2 Registers" << endl;
-  s << "Val\tClearReg\tSharedReg" << endl;
-  for (int i=0; i<P.reg_max2; i++)
-    { s << i << "\t";
-      P.read_C2(i).output(s,true);
-      s << "\t";
-      P.read_S2(i).output(s,true);
-      s << endl;
-    }
-  s << "Char p Registers" << endl;
-  s << "Val\tClearReg\tSharedReg" << endl;
-  for (int i=0; i<P.reg_maxp; i++)
-    { s << i << "\t";
-      P.read_Cp(i).output(s,true);
-      s << "\t";
-      P.read_Sp(i).output(s,true);
-      s << endl;
-    }
-
-  return s;
 }
 
 #endif

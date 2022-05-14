@@ -139,7 +139,7 @@ void YaoEvalWire::my_input(T& inputter, bool value, int n_bits)
 	assert(n_bits == 1);
 	auto& inputs = inputter.inputs;
 	size_t start = inputs.size();
-	inputs.resize(start + 1);
+	inputs.resize_zero(start + 1);
 	inputs.set_bit(start, value);
 }
 
@@ -215,10 +215,45 @@ void YaoEvalWire::set(Key key, bool external)
 void YaoEvalWire::convcbit(Integer& dest, const GC::Clear& source,
 		GC::Processor<GC::Secret<YaoEvalWire>>&)
 {
-	auto& evaluator = YaoEvaluator::s();
 	dest = source;
-	evaluator.P->send_long(0, source.get());
-	throw needs_cleaning();
+	auto &evaluator = YaoEvaluator::s();
+	if (not evaluator.continuous())
+	{
+		evaluator.P->send_long(0, source.get());
+		throw needs_cleaning();
+	}
+}
+
+void YaoEvalWire::reveal_inst(Processor& processor, const vector<int>& args)
+{
+	processor.reveal(args);
+	auto &evaluator = YaoEvaluator::s();
+	if (evaluator.continuous())
+	{
+		octetStream buffer;
+		for (size_t j = 0; j < args.size(); j += 3)
+		{
+			int n = args[j];
+			int r0 = args[j + 1];
+			for (int i = 0; i < DIV_CEIL(n, GC::Clear::N_BITS); i++)
+				processor.C[r0 + i].pack(buffer);
+		}
+		YaoEvaluator::s().P->send_to(0, buffer);
+		throw needs_cleaning();
+	}
+}
+
+void YaoEvalWire::convcbit2s(GC::Processor<whole_type>& processor,
+		const BaseInstruction& instruction)
+{
+	int unit = GC::Clear::N_BITS;
+	for (int i = 0; i < DIV_CEIL(instruction.get_n(), unit); i++)
+	{
+		auto& dest = processor.S[instruction.get_r(0) + i];
+		dest.resize_regs(min(size_t(unit), instruction.get_n() - i * unit));
+		for (auto& reg : dest.get_regs())
+			reg.set(0);
+	}
 }
 
 template void YaoEvalWire::and_<false>(

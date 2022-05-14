@@ -8,6 +8,9 @@
 
 #include "ShamirMC.h"
 
+/**
+ * Shamir share opening with correctness check
+ */
 template<class T>
 class MaliciousShamirMC : public ShamirMC<T>
 {
@@ -35,7 +38,7 @@ public:
     { (void)_; (void)__; (void)___; (void)____; }
 
     void init_open(const Player& P, int n = 0);
-    typename T::open_type finalize_open();
+    typename T::open_type finalize_raw();
 
     typename T::open_type reconstruct(const vector<open_type>& shares);
 };

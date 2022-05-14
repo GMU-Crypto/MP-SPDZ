@@ -16,11 +16,6 @@
 namespace GC
 {
 
-SemiPrep::SemiPrep(DataPositions& usage, ShareThread<SemiSecret>&) :
-        SemiPrep(usage)
-{
-}
-
 SemiPrep::SemiPrep(DataPositions& usage, bool) :
         BufferPrep<SemiSecret>(usage), triple_generator(0)
 {
@@ -29,12 +24,15 @@ SemiPrep::SemiPrep(DataPositions& usage, bool) :
 void SemiPrep::set_protocol(Beaver<SemiSecret>& protocol)
 {
     if (triple_generator)
+    {
+        assert(&triple_generator->get_player() == &protocol.P);
         return;
+    }
 
     (void) protocol;
     params.set_passive();
     triple_generator = new SemiSecret::TripleGenerator(
-            BaseMachine::s().fresh_ot_setup(),
+            BaseMachine::fresh_ot_setup(protocol.P),
             protocol.P.N, -1, OnlineOptions::singleton.batch_size,
             1, params, {}, &protocol.P);
     triple_generator->multi_threaded = false;
@@ -64,14 +62,6 @@ void SemiPrep::buffer_bits()
     {
         this->bits.push_back((r >> i) & 1);
     }
-}
-
-NamedCommStats SemiPrep::comm_stats()
-{
-    if (triple_generator)
-        return triple_generator->comm_stats();
-    else
-        return {};
 }
 
 } /* namespace GC */

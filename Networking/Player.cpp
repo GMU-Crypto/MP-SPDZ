@@ -14,12 +14,14 @@
 
 using namespace std;
 
-void Names::init(int player,int pnb,int my_port,const char* servername)
+void Names::init(int player, int pnb, int my_port, const char* servername,
+    bool setup_socket)
 {
   player_no=player;
   portnum_base=pnb;
   setup_names(servername, my_port);
-  setup_server();
+  if (setup_socket)
+    setup_server();
 }
 
 Names::Names(int player, int nplayers, const string& servername, int pnb,
@@ -124,7 +126,7 @@ void Names::setup_names(const char *servername, int my_port)
     my_port = default_port(player_no);
 
   int socket_num;
-  int pn = portnum_base - 1;
+  int pn = portnum_base;
   set_up_client_socket(socket_num, servername, pn);
   octetStream("P" + to_string(player_no)).Send(socket_num);
 #ifdef DEBUG_NETWORKING
@@ -132,15 +134,11 @@ void Names::setup_names(const char *servername, int my_port)
 #endif
 
   // Send my name
-  octet my_name[512];
-  memset(my_name,0,512*sizeof(octet));
   sockaddr_in address;
   socklen_t size = sizeof address;
   getsockname(socket_num, (sockaddr*)&address, &size);
-  char* name = inet_ntoa(address.sin_addr);
-  // max length of IP address with ending 0
-  strncpy((char*)my_name, name, 16);
-  send(socket_num,my_name,512);
+  char* my_name = inet_ntoa(address.sin_addr);
+  octetStream(my_name).Send(socket_num);
   send(socket_num,(octet*)&my_port,4);
 #ifdef DEBUG_NETWORKING
   fprintf(stderr, "My Name = %s\n",my_name);
@@ -148,24 +146,25 @@ void Names::setup_names(const char *servername, int my_port)
 #endif
 
   // Now get the set of names
-  int i;
-  size_t tmp;
-  receive(socket_num,tmp,4);
-  nplayers = tmp;
+  try
+  {
+    octetStream os;
+    os.Receive(socket_num);
+    os.get(names);
+    os.get(ports);
+  }
+  catch (exception& e)
+  {
+    throw runtime_error(string("error in network setup: ") + e.what());
+  }
+
+  if (names.size() != ports.size())
+    throw runtime_error("invalid network setup");
+  nplayers = names.size();
 #ifdef VERBOSE
-  cerr << nplayers << " players\n";
+  for (int i = 0; i < nplayers; i++)
+    cerr << "Player " << i << " is running on machine " << names[i] << endl;
 #endif
-  names.resize(nplayers);
-  ports.resize(nplayers);
-  for (i=0; i<nplayers; i++)
-    { octet tmp[512];
-      receive(socket_num,tmp,512);
-      names[i]=(char*)tmp;
-      receive(socket_num, (octet*)&ports[i], 4);
-#ifdef VERBOSE
-      cerr << "Player " << i << " is running on machine " << names[i] << endl;
-#endif
-    }
   close_client_socket(socket_num);
 }
 
@@ -174,6 +173,12 @@ void Names::setup_server()
 {
   server = new ServerSocket(ports.at(player_no));
   server->init();
+}
+
+void Names::set_server(ServerSocket* socket)
+{
+  assert(not server);
+  server = socket;
 }
 
 
@@ -189,6 +194,11 @@ Names::Names(const Names& other)
   server = 0;
 }
 
+Names::Names(int my_num, int num_players) :
+    nplayers(num_players), portnum_base(-1), player_no(my_num), server(0)
+{
+}
+
 Names::~Names()
 {
   if (server != 0)
@@ -201,6 +211,7 @@ Player::Player(const Names& Nms) :
 {
   nplayers=Nms.nplayers;
   player_no=Nms.player_no;
+  thread_stats.resize(nplayers);
 }
 
 
@@ -243,6 +254,10 @@ MultiPlayer<T>::~MultiPlayer()
 
 Player::~Player()
 {
+#ifdef VERBOSE
+  for (auto& x : thread_stats)
+    x.print();
+#endif
 }
 
 PlayerBase::~PlayerBase()
@@ -685,7 +700,7 @@ void VirtualTwoPartyPlayer::send(octetStream& o) const
 {
   TimeScope ts(comm_stats["Sending one-to-one"].add(o));
   P.send_to_no_stats(other_player, o);
-  sent += o.get_length();
+  comm_stats.sent += o.get_length();
 }
 
 void RealTwoPartyPlayer::receive(octetStream& o) const
@@ -729,12 +744,13 @@ void RealTwoPartyPlayer::exchange(octetStream& o) const
 void VirtualTwoPartyPlayer::send_receive_player(vector<octetStream>& o) const
 {
   TimeScope ts(comm_stats["Exchanging one-to-one"].add(o[0]));
-  sent += o[0].get_length();
+  comm_stats.sent += o[0].get_length();
   P.exchange_no_stats(other_player, o[0], o[1]);
 }
 
 VirtualTwoPartyPlayer::VirtualTwoPartyPlayer(Player& P, int other_player) :
-    TwoPartyPlayer(P.my_num()), P(P), other_player(other_player)
+    TwoPartyPlayer(P.my_num()), P(P), other_player(other_player), comm_stats(
+        P.thread_stats.at(other_player))
 {
 }
 
@@ -812,6 +828,25 @@ void NamedCommStats::print(bool newline)
       << " seconds" << endl;
   if (size() and newline)
     cerr << endl;
+}
+
+void NamedCommStats::reset()
+{
+  clear();
+  sent = 0;
+}
+
+void PlayerBase::reset_stats()
+{
+  comm_stats.reset();
+}
+
+NamedCommStats Player::total_comm() const
+{
+  auto res = comm_stats;
+  for (auto& x : thread_stats)
+    res += x;
+  return res;
 }
 
 template class MultiPlayer<int>;

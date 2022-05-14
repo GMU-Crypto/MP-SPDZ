@@ -15,48 +15,58 @@ template<class T> istream& operator>>(istream& s,Memory<T>& M);
 #include "Processor/Program.h"
 #include "Tools/CheckVector.h"
 
+template<class T>
+class MemoryPart : public CheckVector<T>
+{
+public:
+  void minimum_size(size_t size);
+};
+
 template<class T> 
 class Memory
 {
   public:
 
-  CheckVector<T> MS;
-  CheckVector<typename T::clear> MC;
+  MemoryPart<T> MS;
+  MemoryPart<typename T::clear> MC;
 
-  void resize_s(int sz)
+  void resize_s(size_t sz)
     { MS.resize(sz); }
-  void resize_c(int sz)
+  void resize_c(size_t sz)
     { MC.resize(sz); }
 
-  unsigned size_s()
+  size_t size_s()
     { return MS.size(); }
-  unsigned size_c()
+  size_t size_c()
     { return MC.size(); }
 
   template<class U>
   static void check_index(const vector<U>& M, size_t i)
     {
+      (void) M, (void) i;
+#ifndef NO_CHECK_INDEX
       if (i >= M.size())
-        throw overflow("memory", i, M.size());
+        throw overflow(U::type_string() + " memory", i, M.size());
+#endif
     }
 
-  const typename T::clear& read_C(int i) const
+  const typename T::clear& read_C(size_t i) const
     {
       check_index(MC, i);
       return MC[i];
     }
-  const T& read_S(int i) const
+  const T& read_S(size_t i) const
     {
       check_index(MS, i);
       return MS[i];
     }
 
-  void write_C(unsigned int i,const typename T::clear& x)
+  void write_C(size_t i,const typename T::clear& x)
     {
       check_index(MC, i);
       MC[i]=x;
     }
-  void write_S(unsigned int i,const T& x)
+  void write_S(size_t i,const T& x)
     {
       check_index(MS, i);
       MS[i]=x;

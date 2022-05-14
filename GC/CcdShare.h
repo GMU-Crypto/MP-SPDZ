@@ -27,6 +27,7 @@ public:
     typedef ShamirInput<This> Input;
 
     typedef ShamirMC<This> MAC_Check;
+    typedef Shamir<This> Protocol;
 
     typedef This small_type;
 
@@ -39,7 +40,7 @@ public:
         return "CCD";
     }
 
-    static MAC_Check* new_mc(T)
+    static MAC_Check* new_mc(typename super::mac_key_type)
     {
         return new MAC_Check;
     }
@@ -72,13 +73,6 @@ public:
     void public_input(bool input)
     {
         *this = input;
-    }
-
-    void random()
-    {
-        CcdSecret<T> tmp;
-        ShareThread<CcdSecret<T>>::s().DataF.get_one(DATA_BIT, tmp);
-        *this = tmp.get_reg(0);
     }
 
     This& operator^=(const This& other)

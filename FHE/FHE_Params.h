@@ -13,6 +13,7 @@
 #include "FHE/FFT_Data.h"
 #include "FHE/DiscreteGauss.h"
 #include "Tools/random.h"
+#include "Protocols/config.h"
 
 class FHE_Params
 {
@@ -26,19 +27,22 @@ class FHE_Params
   // Data for distributed decryption
   int sec_p;
   bigint Bval;
+  int matrix_dim;
 
   public:
 
-  FHE_Params(int n_mults = 1) : FFTData(n_mults + 1), Chi(0.7), sec_p(-1) {}
+  FHE_Params(int n_mults = 1, int drown_sec = DEFAULT_SECURITY);
 
   int n_mults() const { return FFTData.size() - 1; }
-
-  // Rely on default copy assignment/constructor (not that they should
-  // ever be needed)
 
   void set(const Ring& R,const vector<bigint>& primes);
   void set(const vector<bigint>& primes);
   void set_sec(int sec);
+  void set_min_sec(int sec);
+
+  void set_matrix_dim(int matrix_dim);
+  void set_matrix_dim_from_options();
+  int get_matrix_dim() const         { return matrix_dim; }
 
   const vector<FFT_Data>& FFTD() const { return FFTData; }
 

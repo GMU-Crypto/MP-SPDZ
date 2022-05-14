@@ -42,12 +42,11 @@ class Machine : public BaseMachine
   typename sgf2n::mac_key_type alpha2i;
   typename sint::bit_type::mac_key_type alphabi;
 
-  // Keep record of used offline data
-  DataPositions pos;
-
   Player* P;
 
   void load_program(const string& threadname, const string& filename);
+
+  void prepare(const string& progname_str);
 
   void suggest_optimizations();
 
@@ -72,19 +71,18 @@ class Machine : public BaseMachine
 
   OnlineOptions opts;
 
-  NamedCommStats comm_stats;
   ExecutionStats stats;
 
-  Machine(int my_number, Names& playerNames, const string& progname,
-      const string& memtype, int lg2, bool direct, int opening_sum,
-      bool receive_threads, int max_broadcast, bool use_encryption, bool live_prep,
-      OnlineOptions opts);
+  static void init_binary_domains(int security_parameter, int lg2);
+
+  Machine(Names& playerNames, bool use_encryption = true,
+          const OnlineOptions opts = sint(), int lg2 = 0);
   ~Machine();
 
   const Names& get_N() { return N; }
 
-  DataPositions run_tapes(const vector<int> &args, Preprocessing<sint> *prep,
-      Preprocessing<typename sint::bit_type> *bit_prep);
+  DataPositions run_tapes(const vector<int> &args,
+      Data_Files<sint, sgf2n>& DataF);
   void fill_buffers(int thread_number, int tape_number,
       Preprocessing<sint> *prep,
       Preprocessing<typename sint::bit_type> *bit_prep);
@@ -93,9 +91,14 @@ class Machine : public BaseMachine
       Preprocessing<sint> *prep, true_type);
   template<int = 0>
   void fill_matmul(int, int, Preprocessing<sint>*, false_type) {}
-  DataPositions run_tape(int thread_number, int tape_number, int arg);
+  DataPositions run_tape(int thread_number, int tape_number, int arg,
+      const DataPositions& pos);
   DataPositions join_tape(int thread_number);
-  void run();
+
+  void run(const string& progname);
+
+  void run_step(const string& progname);
+  pair<DataPositions, NamedCommStats> stop_threads();
 
   string memory_filename();
 
@@ -105,6 +108,9 @@ class Machine : public BaseMachine
   void reqbl(int n);
 
   typename sint::bit_type::mac_key_type get_bit_mac_key() { return alphabi; }
+  typename sint::mac_key_type get_sint_mac_key() { return alphapi; }
+
+  Player& get_player() { return *P; }
 };
 
 #endif /* MACHINE_H_ */

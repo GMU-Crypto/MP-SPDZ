@@ -106,8 +106,6 @@ void run(int argc, const char** argv)
     typename pShare::Direct_MC MCp(keyp);
     ArithmeticProcessor _({}, 0);
     typename pShare::TriplePrep sk_prep(0, usage);
-    GC::ShareThread<typename pShare::bit_type> thread(N,
-            OnlineOptions::singleton, P, {}, usage);
     SubProcessor<pShare> sk_proc(_, MCp, sk_prep, P);
     pShare sk, __;
     // synchronize
@@ -115,10 +113,10 @@ void run(int argc, const char** argv)
     P.unchecked_broadcast(bundle);
     Timer timer;
     timer.start();
-    auto stats = P.comm_stats;
+    auto stats = P.total_comm();
     sk_prep.get_two(DATA_INVERSE, sk, __);
     cout << "Secret key generation took " << timer.elapsed() * 1e3 << " ms" << endl;
-    (P.comm_stats - stats).print(true);
+    (P.total_comm() - stats).print(true);
 
     OnlineOptions::singleton.batch_size = (1 + pShare::Protocol::uses_triples) * n_tuples;
     typename pShare::TriplePrep prep(0, usage);

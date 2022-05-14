@@ -10,6 +10,7 @@
 #include "Math/bigint.h"
 #include "Math/gfp.h"
 #include "GC/NoShare.h"
+#include "BMR/Register.h"
 
 #include "NoLivePrep.h"
 #include "NoProtocol.h"
@@ -23,9 +24,6 @@ public:
     // type for clear values in relevant domain
     typedef T clear;
     typedef clear open_type;
-
-    // needs to be defined even if protocol doesn't use MACs
-    typedef clear mac_key_type;
 
     // disable binary computation
     typedef GC::NoShare bit_type;

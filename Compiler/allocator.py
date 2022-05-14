@@ -15,10 +15,12 @@ from functools import reduce
 class BlockAllocator:
     """ Manages freed memory blocks. """
     def __init__(self):
-        self.by_logsize = [defaultdict(set) for i in range(32)]
+        self.by_logsize = [defaultdict(set) for i in range(64)]
         self.by_address = {}
 
     def by_size(self, size):
+        if size >= 2 ** 64:
+            raise CompilerError('size exceeds addressing capability')
         return self.by_logsize[int(math.log(size, 2))][size]
 
     def push(self, address, size):
@@ -401,6 +403,20 @@ class Merger:
                     add_edge(last_input[t][1], n)
             last_input[t][0] = n
 
+        def keep_text_order(inst, n):
+            if inst.get_players() is None:
+                # switch
+                for x in list(last_input.keys()):
+                    if isinstance(x, int):
+                        add_edge(last_input[x][0], n)
+                        del last_input[x]
+                keep_merged_order(instr, n, None)
+            elif last_input[None][0] is not None:
+                keep_merged_order(instr, n, None)
+            else:
+                for player in inst.get_players():
+                    keep_merged_order(instr, n, player)
+
         for n,instr in enumerate(block.instructions):
             outputs,inputs = instr.get_def(), instr.get_used()
 
@@ -425,7 +441,7 @@ class Merger:
 
             # will be merged
             if isinstance(instr, TextInputInstruction):
-                keep_merged_order(instr, n, TextInputInstruction)
+                keep_text_order(instr, n)
             elif isinstance(instr, RawInputInstruction):
                 keep_merged_order(instr, n, RawInputInstruction)
 
@@ -477,10 +493,6 @@ class Merger:
                 last_print_str = n
             elif isinstance(instr, PublicFileIOInstruction):
                 keep_order(instr, n, instr.__class__)
-            elif isinstance(instr, startprivateoutput_class):
-                keep_order(instr, n, startprivateoutput_class, 2)
-            elif isinstance(instr, stopprivateoutput_class):
-                keep_order(instr, n, stopprivateoutput_class, 2)
             elif isinstance(instr, prep_class):
                 keep_order(instr, n, instr.args[0])
             elif isinstance(instr, StackInstruction):
@@ -581,13 +593,6 @@ class RegintOptimizer:
                         self.cache[inst.args[0]] = res
                         instructions[i] = ldint(inst.args[0], res,
                                                 add_to_prog=False)
-                elif isinstance(inst, addint_class):
-                    if inst.args[1] in self.cache and \
-                       self.cache[inst.args[1]] == 0:
-                        instructions[i] = inst.args[0].link(inst.args[2])
-                    elif inst.args[2] in self.cache and \
-                       self.cache[inst.args[2]] == 0:
-                        instructions[i] = inst.args[0].link(inst.args[1])
             elif isinstance(inst, IndirectMemoryInstruction):
                 if inst.args[1] in self.cache:
                     instructions[i] = inst.get_direct(self.cache[inst.args[1]])
@@ -604,7 +609,4 @@ class RegintOptimizer:
                     if op == 0:
                         instructions[i] = ldsi(inst.args[0], 0,
                                                add_to_prog=False)
-                    elif op == 1:
-                        instructions[i] = None
-                        inst.args[0].link(inst.args[1])
         instructions[:] = list(filter(lambda x: x is not None, instructions))

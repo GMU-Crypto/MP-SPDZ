@@ -8,6 +8,9 @@ GDEBUG = -g
 # set this to your preferred local storage directory
 PREP_DIR = '-DPREP_DIR="Player-Data/"'
 
+# directory to store SSL keys
+SSL_DIR = '-DSSL_DIR="Player-Data/"'
+
 # set for SHE preprocessing (SPDZ and Overdrive)
 USE_NTL = 0
 
@@ -42,6 +45,7 @@ else
 AVX_OT = 1
 endif
 else
+ARCH =
 AVX_OT = 0
 endif
 
@@ -83,12 +87,14 @@ else
 BOOST = -lboost_thread $(MY_BOOST)
 endif
 
-CFLAGS += $(ARCH) $(MY_CFLAGS) $(GDEBUG) -Wextra -Wall $(OPTIM) -I$(ROOT) -pthread $(PROF) $(DEBUG) $(MOD) $(GF2N_LONG) $(PREP_DIR) $(SECURE) -std=c++11 -Werror
+CFLAGS += $(ARCH) $(MY_CFLAGS) $(GDEBUG) -Wextra -Wall $(OPTIM) -I$(ROOT) -pthread $(PROF) $(DEBUG) $(MOD) $(GF2N_LONG) $(PREP_DIR) $(SSL_DIR) $(SECURE) -std=c++11 -Werror
 CPPFLAGS = $(CFLAGS)
 LD = $(CXX)
 
 ifeq ($(OS), Darwin)
+# for boost with OpenSSL 3
+CFLAGS += -Wno-error=deprecated-declarations
 ifeq ($(USE_NTL),1)
-CFLAGS += -Wno-error=unused-parameter
+CFLAGS += -Wno-error=unused-parameter -Wno-error=deprecated-copy
 endif
 endif

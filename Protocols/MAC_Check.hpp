@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include "Protocols/MAC_Check_Base.hpp"
+#include "mac_key.hpp"
 
 template<class T>
 const char* TreeSum<T>::mc_timer_names[] = {
@@ -50,11 +51,13 @@ Tree_MAC_Check<U>::Tree_MAC_Check(const typename U::mac_key_type::Scalar& ai, in
 template<class T>
 Tree_MAC_Check<T>::~Tree_MAC_Check()
 {
+#ifndef NO_SECURITY_CHECK
   if (WaitingForCheck() > 0)
     {
       cerr << endl << "SECURITY BUG: insufficient checking" << endl;
       terminate();
     }
+#endif
 }
 
 template<class U>
@@ -83,12 +86,6 @@ void Tree_MAC_Check<U>::exchange(const Player& P)
 
   popen_cnt += this->values.size();
   CheckIfNeeded(P);
-
-  /* not compatible with continuous communication
-  send_player++;
-  if (send_player==P.num_players())
-    { send_player=0; }
-  */
 }
 
 
@@ -122,6 +119,7 @@ template<class U>
 void MAC_Check_<U>::Check(const Player& P)
 {
   assert(U::mac_type::invertible);
+  check_field_size<typename U::mac_type>();
 
   if (this->WaitingForCheck() == 0)
     return;
@@ -131,9 +129,11 @@ void MAC_Check_<U>::Check(const Player& P)
   auto& vals = this->vals;
   auto& macs = this->macs;
   auto& popen_cnt = this->popen_cnt;
+  assert(int(macs.size()) <= popen_cnt);
 
   if (popen_cnt < 10)
     {
+      // no random combination with few values
       vector<typename U::mac_type> deltas;
       Bundle<octetStream> bundle(P);
       for (int i = 0; i < popen_cnt; i++)
@@ -155,6 +155,7 @@ void MAC_Check_<U>::Check(const Player& P)
     }
   else
     {
+      // check random combination
       octet seed[SEED_SIZE];
       this->timers[SEED].start();
       Create_Random_Seed(seed,P,SEED_SIZE);
@@ -215,17 +216,15 @@ MAC_Check_Z2k<T, U, V, W>::MAC_Check_Z2k(const T& ai, Names& Nms,
 }
 
 template<class T, class U, class V, class W>
-void MAC_Check_Z2k<T, U, V, W>::AddToCheck(const W& share, const T& value, const Player& P)
+void MAC_Check_Z2k<T, U, V, W>::prepare_open(const W& secret)
 {
-  shares.push_back(share.get_share());
-  Tree_MAC_Check<W>::AddToCheck(share, value, P);
+  prepare_open_no_mask(secret + (get_random_element() << W::clear::N_BITS));
 }
 
 template<class T, class U, class V, class W>
-void MAC_Check_Z2k<T, U, V, W>::prepare_open(const W& secret)
+void MAC_Check_Z2k<T, U, V, W>::prepare_open_no_mask(const W& secret)
 {
-  shares.push_back(secret.get_share());
-  this->values.push_back(V(secret.get_share()));
+  this->values.push_back(secret.get_share());
   this->macs.push_back(secret.get_mac());
 }
 
@@ -270,7 +269,6 @@ void MAC_Check_Z2k<T, U, V, W>::Check(const Player& P)
   cout << "Checking " << shares[0] << " " << this->vals[0] << " " << this->macs[0] << endl;
 #endif
 
-  int k = V::N_BITS;
   octet seed[SEED_SIZE];
   Create_Random_Seed(seed,P,SEED_SIZE);
   PRNG G;
@@ -291,30 +289,7 @@ void MAC_Check_Z2k<T, U, V, W>::Check(const Player& P)
     chi.push_back(temp_chi);
   }
 
-  W r = get_random_element();
-  T lj = r.get_mac();
-  U pj;
-  pj.assign_zero();
-  for (int i = 0; i < this->popen_cnt; ++i)
-  {
-    T xji = shares[i];
-    V xbarji = xji;
-    U pji = U((xji - xbarji) >> k);
-    pj += chi[i] * pji;
-  }
-  pj += U(r.get_share());
-
-  U pbar(pj);
-  vector<octetStream> pj_stream(P.num_players());
-  pj.pack(pj_stream[P.my_num()]);
-  P.unchecked_broadcast(pj_stream);
-  for (int j=0; j<P.num_players(); j++) {
-    if (j!=P.my_num()) {
-      pbar += pj_stream[j].consume(U::size());
-    }
-  }
-
-  T zj = mj - (this->alphai * y) - (((this->alphai * pbar)) << k) + (lj << k);
+  T zj = mj - this->alphai * y;
   vector<T> zjs(P.num_players());
   zjs[P.my_num()] = zj;
   Commit_And_Open(zjs, P);
@@ -326,7 +301,6 @@ void MAC_Check_Z2k<T, U, V, W>::Check(const Player& P)
 
   this->vals.erase(this->vals.begin(), this->vals.begin() + this->popen_cnt);
   this->macs.erase(this->macs.begin(), this->macs.begin() + this->popen_cnt);
-  this->shares.erase(this->shares.begin(), this->shares.begin() + this->popen_cnt);
   this->popen_cnt=0;
   if (!zj_sum.is_zero()) { throw mac_fail(); }
 }

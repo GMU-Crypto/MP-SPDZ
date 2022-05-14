@@ -1,5 +1,48 @@
 The changelog explains changes pulled through from the private development repository. Bug fixes and small enhancements are committed between releases and not documented here.
 
+## 0.3.1 (Apr 19, 2022)
+
+- Protocol in dealer model
+- Command-line option for security parameter
+- Fixed security bug in SPDZ2k (see Section 3.4 of [the updated paper](https://eprint.iacr.org/2018/482))
+- Ability to run high-level (Python) code from C++
+- More memory capacity due to 64-bit addressing
+- Homomorphic encryption for more fields of characteristic two
+- Docker container
+
+## 0.3.0 (Feb 17, 2022)
+
+- Semi-honest computation based on threshold semi-homomorphic encryption
+- Batch normalization backward propagation
+- AlexNet for CIFAR-10
+- Specific private output protocols
+- Semi-honest additive secret sharing without communication
+- Sending of personal values
+- Allow overwriting of persistence files
+- Protocol signature in persistence files
+
+## 0.2.9 (Jan 11, 2022)
+
+- Disassembler
+- Run-time parameter for probabilistic truncation error
+- Probabilistic truncation for some protocols computing modulo a prime
+- Simplified C++ interface
+- Comparison as in [ACCO](https://dl.acm.org/doi/10.1145/3474123.3486757)
+- More general scalar-vector multiplication
+- Complete memory support for clear bits
+- Extended clear bit functionality with Yao's garbled circuits
+- Allow preprocessing information to be supplied via named pipes
+- In-place operations for containers
+
+## 0.2.8 (Nov 4, 2021)
+
+- Tested on Apple laptop with ARM chip
+- Restore trusted client interface
+- Directly accessible softmax function
+- Signature in preprocessing files to reduce confusing errors
+- Improved error messages for connection issues
+- Documentation of low-level share types and protocol pairs
+
 ## 0.2.7 (Sep 17, 2021)
 
 - Optimized matrix multiplication in Hemi
