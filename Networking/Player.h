@@ -35,6 +35,7 @@ class Names
   friend class Player;
   friend class PlainPlayer;
   friend class RealTwoPartyPlayer;
+  friend class Server;
 
   vector<string> names;
   vector<int> ports;
@@ -51,6 +52,8 @@ class Names
 
   void setup_server();
 
+  void set_server(ServerSocket* socket);
+
   public:
 
   static const int DEFAULT_PORT = -1;
@@ -62,8 +65,10 @@ class Names
    * @param my_port my port number (`DEFAULT_PORT` for default,
    *  which is base port number plus player number)
    * @param servername location of server
+   * @param setup_socket whether to start listening
    */
-  void init(int player,int pnb,int my_port,const char* servername);
+  void init(int player, int pnb, int my_port, const char* servername,
+      bool setup_socket = true);
   Names(int player,int pnb,int my_port,const char* servername) : Names()
     { init(player,pnb,my_port,servername); }
 
@@ -111,7 +116,7 @@ class Names
   Names(ez::ezOptionParser& opt, int argc, const char** argv,
       int default_nplayers = 2);
 
-  Names() : nplayers(1), portnum_base(-1), player_no(0), server(0) { ; }
+  Names(int my_num = 0, int num_players = 1);
   Names(const Names& other);
   ~Names();
 
@@ -154,6 +159,7 @@ public:
   NamedCommStats operator-(const NamedCommStats& other) const;
   size_t total_data();
   void print(bool newline = false);
+  void reset();
 #ifdef VERBOSE_COMM
   CommStats& operator[](const string& name)
   {
@@ -172,10 +178,11 @@ class PlayerBase
 protected:
   int player_no;
 
-public:
   size_t& sent;
-  mutable Timer timer;
   mutable NamedCommStats comm_stats;
+
+public:
+  mutable Timer timer;
 
   PlayerBase(int player_no) : player_no(player_no), sent(comm_stats.sent) {}
   virtual ~PlayerBase();
@@ -184,10 +191,19 @@ public:
   virtual int my_num() const = 0;
   virtual int num_players() const = 0;
 
-  virtual void pass_around(octetStream& o, int offset = 1) const = 0;
-  virtual void Broadcast_Receive(vector<octetStream>& o) const = 0;
+  virtual void receive_player(int, octetStream&) const
+  { throw not_implemented(); }
+  virtual void pass_around(octetStream&, int = 1) const
+  { throw not_implemented(); }
+  virtual void Broadcast_Receive(vector<octetStream>&) const
+  { throw not_implemented(); }
   virtual void unchecked_broadcast(vector<octetStream>& o) const
   { Broadcast_Receive(o); }
+  virtual void send_receive_all(const vector<octetStream>&,
+      vector<octetStream>&) const
+  { throw not_implemented(); }
+
+  void reset_stats();
 };
 
 /**
@@ -204,6 +220,8 @@ protected:
 
 public:
   const Names& N;
+
+  mutable vector<NamedCommStats> thread_stats;
 
   Player(const Names& Nms);
   virtual ~Player();
@@ -222,8 +240,8 @@ public:
 
   virtual bool is_encrypted() { return false; }
 
-  virtual void send_long(int i, long a) const = 0;
-  virtual long receive_long(int i) const = 0;
+  virtual void send_long(int, long) const { throw not_implemented(); }
+  virtual long receive_long(int) const { throw not_implemented(); }
 
   // The following functions generally update the statistics
   // and then call the *_no_stats equivalent specified by a subclass.
@@ -275,7 +293,8 @@ public:
    * reusing the buffer if possible.
    */
   void exchange(int other, const octetStream& to_send, octetStream& ot_receive) const;
-  virtual void exchange_no_stats(int other, const octetStream& to_send, octetStream& ot_receive) const = 0;
+  virtual void exchange_no_stats(int, const octetStream&, octetStream&) const
+  { throw runtime_error("implement exchange"); }
   /**
    * Exchange information with one other party, reusing the buffer.
    */
@@ -296,8 +315,8 @@ public:
    * The default is to send to the next party while receiving from the previous.
    */
   void pass_around(octetStream& to_send, octetStream& to_receive, int offset) const;
-  virtual void pass_around_no_stats(const octetStream& to_send,
-      octetStream& to_receive, int offset) const = 0;
+  virtual void pass_around_no_stats(const octetStream&, octetStream&,
+      int) const { throw runtime_error("implement passing around"); }
 
   /**
    * Broadcast and receive data to/from all players.
@@ -309,7 +328,8 @@ public:
    * Assumes o[player_no] contains the data to be broadcast by me.
    */
   virtual void Broadcast_Receive(vector<octetStream>& o) const;
-  virtual void Broadcast_Receive_no_stats(vector<octetStream>& o) const = 0;
+  virtual void Broadcast_Receive_no_stats(vector<octetStream>&) const
+  { throw runtime_error("implement broadcast"); }
 
   /**
    * Run protocol to verify broadcast is correct
@@ -358,6 +378,8 @@ public:
   virtual void request_receive(int i, octetStream& o) const { (void)i; (void)o; }
   virtual void wait_receive(int i, octetStream& o) const
   { receive_player(i, o); }
+
+  NamedCommStats total_comm() const;
 };
 
 /**
@@ -500,6 +522,7 @@ class VirtualTwoPartyPlayer : public TwoPartyPlayer
 {
   Player& P;
   int other_player;
+  NamedCommStats& comm_stats;
 
 public:
   VirtualTwoPartyPlayer(Player& P, int other_player);
@@ -531,6 +554,7 @@ public:
   int other_player_num() const { return P.get_player(offset); }
   int num_players() const { return 2; }
   int get_offset() const { return offset; }
+  Player& get_full_player() const { return P; }
 
   void send(octetStream& o) const { P.send_to(P.get_player(offset), o); }
   void reverse_send(octetStream& o) const { P.send_to(P.get_player(-offset), o); }

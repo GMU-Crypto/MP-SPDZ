@@ -8,7 +8,8 @@
 
 #include "MascotPrep.h"
 #include "RingOnlyPrep.h"
-#include "Spdz2kShare.h"
+
+template<int, int> class Spdz2kShare;
 
 template<class T, class U>
 void bits_from_square_in_ring(vector<T>& bits, int buffer_size, U* bit_prep);
@@ -26,7 +27,6 @@ class Spdz2kPrep : public virtual MaliciousRingPrep<T>,
     MascotTriplePrep<BitShare>* bit_prep;
     SubProcessor<BitShare>* bit_proc;
     typename BitShare::MAC_Check* bit_MC;
-    typename BitShare::Protocol* bit_protocol;
 
 public:
     Spdz2kPrep(SubProcessor<T>* proc, DataPositions& usage);
@@ -41,8 +41,6 @@ public:
 #ifdef SPDZ2K_BIT
     void get_dabit(T& a, GC::TinySecret<T::s>& b);
 #endif
-
-    NamedCommStats comm_stats();
 };
 
 #endif /* PROTOCOLS_SPDZ2KPREP_H_ */

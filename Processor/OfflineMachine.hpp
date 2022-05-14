@@ -22,6 +22,7 @@ OfflineMachine<W>::OfflineMachine(int argc, const char** argv,
     Program program(playerNames.num_players());
     program.parse(machine.bc_filenames[0]);
     usage = program.get_offline_data_used();
+    n_threads = machine.nthreads;
     machine.ot_setups.push_back({P});
 }
 
@@ -36,12 +37,15 @@ template<class T, class U>
 int OfflineMachine<W>::run()
 {
     T::clear::init_default(this->online_opts.prime_length());
-    U::clear::init_field(U::clear::default_degree());
-    T::bit_type::mac_key_type::init_field();
+    Machine<T, U>::init_binary_domains(this->online_opts.security_parameter,
+            this->lg2);
     auto binary_mac_key = read_generate_write_mac_key<
             typename T::bit_type::part_type>(P);
     typename T::bit_type::LivePrep bit_prep(usage);
     GC::ShareThread<typename T::bit_type> thread(bit_prep, P, binary_mac_key);
+
+    // setup before generation to fix prime
+    T::LivePrep::basic_setup(P);
 
     generate<T>();
     generate<typename T::bit_type::part_type>();
@@ -50,6 +54,12 @@ int OfflineMachine<W>::run()
     thread.MC->Check(P);
 
     return 0;
+}
+
+template<class W>
+int OfflineMachine<W>::buffered_total(size_t required, size_t batch)
+{
+    return DIV_CEIL(required, batch) * batch + (n_threads - 1) * batch;
 }
 
 template<class W>
@@ -71,7 +81,7 @@ void OfflineMachine<W>::generate()
         auto my_usage = domain_usage[i];
         Dtype dtype = Dtype(i);
         string filename = Sub_Data_Files<T>::get_filename(playerNames, dtype,
-                T::clear::field_type() == DATA_GF2 ? 0 : -1);
+                0);
         if (my_usage > 0)
         {
             ofstream out(filename, iostream::out | iostream::binary);
@@ -79,7 +89,7 @@ void OfflineMachine<W>::generate()
             if (i == DATA_DABIT)
             {
                 for (long long j = 0;
-                        j < DIV_CEIL(my_usage, BUFFER_SIZE) * BUFFER_SIZE; j++)
+                        j < buffered_total(my_usage, BUFFER_SIZE); j++)
                 {
                     T a;
                     typename T::bit_type b;
@@ -91,7 +101,7 @@ void OfflineMachine<W>::generate()
             {
                 vector<T> tuple(DataPositions::tuple_size[i]);
                 for (long long j = 0;
-                        j < DIV_CEIL(my_usage, BUFFER_SIZE) * BUFFER_SIZE; j++)
+                        j < buffered_total(my_usage, BUFFER_SIZE); j++)
                 {
                     preprocessing.get(dtype, tuple.data());
                     for (auto& x : tuple)
@@ -106,14 +116,14 @@ void OfflineMachine<W>::generate()
     for (int i = 0; i < P.num_players(); i++)
     {
         auto n_inputs = usage.inputs[i][T::clear::field_type()];
-        string filename = Sub_Data_Files<T>::get_input_filename(playerNames, i);
+        string filename = Sub_Data_Files<T>::get_input_filename(playerNames, i, 0);
         if (n_inputs > 0)
         {
             ofstream out(filename, iostream::out | iostream::binary);
             file_signature<T>().output(out);
             InputTuple<T> tuple;
             for (long long j = 0;
-                    j < DIV_CEIL(n_inputs, BUFFER_SIZE) * BUFFER_SIZE; j++)
+                    j < buffered_total(n_inputs, BUFFER_SIZE); j++)
             {
                 preprocessing.get_input(tuple.share, tuple.value, i);
                 tuple.share.output(out, false);
@@ -137,12 +147,12 @@ void OfflineMachine<W>::generate()
             int total = usage.edabits[{false, n_bits}] +
                     usage.edabits[{true, n_bits}];
             string filename = Sub_Data_Files<T>::get_edabit_filename(playerNames,
-                                n_bits);
+                                n_bits, 0);
             if (total > 0)
             {
                 ofstream out(filename, ios::binary);
                 file_signature<T>().output(out);
-                for (int i = 0; i < DIV_CEIL(total, batch) * batch; i++)
+                for (int i = 0; i < buffered_total(total, batch); i++)
                     preprocessing.template get_edabitvec<0>(true, n_bits).output(n_bits,
                             out);
             }

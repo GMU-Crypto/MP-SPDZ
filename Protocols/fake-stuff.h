@@ -11,7 +11,7 @@ using namespace std;
 
 template<class T>
 void check_share(vector<T>& Sa, typename T::clear& value,
-    typename T::value_type& mac, int N, const typename T::value_type& key);
+    typename T::mac_type& mac, int N, const typename T::mac_key_type& key);
 
 template<class T> class Share;
 
@@ -34,7 +34,7 @@ template <class U>
 void read_mac_key(const string& directory, const Names& N, U& key);
 
 template <class T>
-typename T::mac_key_type read_generate_write_mac_key(const Player& P,
+typename T::mac_key_type read_generate_write_mac_key(Player& P,
         string directory = "");
 
 template <class T>

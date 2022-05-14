@@ -10,6 +10,7 @@
 #include "GC/Memory.h"
 #include "GC/Access.h"
 #include "GC/ArgTuples.h"
+#include "GC/NoShare.h"
 
 #include "Math/gf2nlong.h"
 #include "Tools/SwitchableOutput.h"
@@ -40,7 +41,6 @@ public:
     typedef FakeSecret DynamicType;
     typedef Memory<FakeSecret> DynamicMemory;
 
-    typedef BitVec mac_key_type;
     typedef BitVec clear;
     typedef BitVec open_type;
 
@@ -104,6 +104,13 @@ public:
 
     template <class T>
     static void convcbit(Integer& dest, const Clear& source, T&) { dest = source; }
+
+    template<class U>
+    static void convcbit2s(GC::Processor<U>&, const BaseInstruction&)
+    { throw runtime_error("convcbit2s not implemented"); }
+    template<class U>
+    static void andm(GC::Processor<U>&, const BaseInstruction&)
+    { throw runtime_error("andm not implemented"); }
 
     static FakeSecret input(GC::Processor<FakeSecret>& processor, const InputArgs& args);
     static FakeSecret input(int from, word input, int n_bits);

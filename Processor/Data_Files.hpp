@@ -3,6 +3,7 @@
 
 #include "Processor/Data_Files.h"
 #include "Processor/Processor.h"
+#include "Processor/NoFilePrep.h"
 #include "Protocols/dabit.h"
 #include "Math/Setup.h"
 #include "GC/BitPrepFiles.h"
@@ -26,10 +27,11 @@ Preprocessing<T>* Preprocessing<T>::get_new(
     return get_live_prep(proc, usage);
   else
     return new Sub_Data_Files<T>(machine.get_N(),
-        machine.template prep_dir_prefix<T>(), usage);
+        machine.template prep_dir_prefix<T>(), usage, BaseMachine::thread_num);
 }
 
 template<class T>
+template<int>
 Preprocessing<T>* Preprocessing<T>::get_new(
     bool live_prep, const Names& N,
     DataPositions& usage)
@@ -156,17 +158,7 @@ Data_Files<sint, sgf2n>::Data_Files(const Names& N) :
 template<class sint, class sgf2n>
 Data_Files<sint, sgf2n>::~Data_Files()
 {
-#ifdef VERBOSE
-  if (DataFp.data_sent())
-    cerr << "Sent for " << sint::type_string() << " preprocessing threads: " <<
-        DataFp.data_sent() * 1e-6 << " MB" << endl;
-#endif
   delete &DataFp;
-#ifdef VERBOSE
-  if (DataF2.data_sent())
-    cerr << "Sent for " << sgf2n::type_string() << " preprocessing threads: " <<
-        DataF2.data_sent() * 1e-6 << " MB" << endl;
-#endif
   delete &DataF2;
   delete &DataFb;
 }
@@ -185,6 +177,9 @@ Sub_Data_Files<T>::~Sub_Data_Files()
 template<class T>
 void Sub_Data_Files<T>::seekg(DataPositions& pos)
 {
+  if (OnlineOptions::singleton.file_prep_per_thread)
+    return;
+
   if (T::LivePrep::use_part)
     {
       get_part().seekg(pos);
@@ -261,6 +256,8 @@ void Sub_Data_Files<T>::purge()
   for (auto it : extended)
     it.second.purge();
   dabit_buffer.purge();
+  if (part != 0)
+    part->purge();
 }
 
 template<class T>
@@ -302,9 +299,7 @@ template<int>
 void Sub_Data_Files<T>::buffer_edabits_with_queues(bool strict, int n_bits,
         false_type)
 {
-#ifndef INSECURE
-  throw runtime_error("no secure implementation of reading edaBits from files");
-#endif
+  insecure("reading edaBits from files");
   if (edabit_buffers.find(n_bits) == edabit_buffers.end())
     {
       string filename = PrepBase::get_edabit_filename(prep_data_dir,
@@ -326,10 +321,10 @@ void Sub_Data_Files<T>::buffer_edabits_with_queues(bool strict, int n_bits,
 }
 
 template<class T>
-Preprocessing<typename T::part_type>& Sub_Data_Files<T>::get_part()
+typename Sub_Data_Files<T>::part_type& Sub_Data_Files<T>::get_part()
 {
   if (part == 0)
-    part = new Sub_Data_Files<typename T::part_type>(my_num, num_players,
+    part = new part_type(my_num, num_players,
         get_prep_sub_dir<typename T::part_type>(num_players), this->usage,
         thread_num);
   return *part;

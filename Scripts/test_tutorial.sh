@@ -52,20 +52,20 @@ for dabit in ${dabit:-0 1 2}; do
     ./compile.py -R 64 $compile_opts tutorial
 
     for i in ring rep4-ring semi2k brain mal-rep-ring ps-rep-ring sy-rep-ring \
-	     spdz2k; do
+	     spdz2k dealer-ring; do
 	test_vm $i $run_opts
     done
 
     ./compile.py  $compile_opts tutorial
 
     for i in rep-field shamir mal-rep-field ps-rep-field sy-rep-field \
-		       atlas mal-shamir sy-shamir hemi semi \
+		       atlas mal-shamir sy-shamir hemi semi temi \
 		       soho mascot; do
 	test_vm $i $run_opts
     done
 
     for i in cowgear chaigear; do
-	test_vm $i $run_opts -l 3 -c 2
+	test_vm $i $run_opts -S 3 -c 2
     done
 done
 
@@ -83,7 +83,7 @@ fi
 ./compile.py tutorial
 
 for i in cowgear chaigear; do
-    test_vm $i $run_opts -l 3 -c 2 -J
+    test_vm $i $run_opts -S 3 -c 2 -J
 done
 
 if test $skip_binary; then

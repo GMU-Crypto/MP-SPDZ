@@ -23,6 +23,7 @@ using namespace std;
 #include "Tools/PointerVector.h"
 #include "Tools/Bundle.h"
 #include "Tools/SwitchableOutput.h"
+#include "Processor/Instruction.h"
 
 //#define PAD_TO_8(n) (n+8-n%8)
 #define PAD_TO_8(n) (n)
@@ -288,6 +289,13 @@ public:
 	template <class T>
 	static void inputbvec(T& processor, ProcessorBase& input_processor,
 			const vector<int>& args);
+
+    template<class U>
+    static void convcbit2s(GC::Processor<U>&, const BaseInstruction&)
+    { throw runtime_error("convcbit2s not implemented"); }
+    template<class U>
+    static void andm(GC::Processor<U>&, const BaseInstruction&)
+    { throw runtime_error("andm not implemented"); }
 
 	// most BMR phases don't need actual input
 	template<class T>

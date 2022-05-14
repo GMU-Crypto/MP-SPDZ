@@ -27,7 +27,6 @@ class Shamir : public ProtocolBase<T>
 {
     typedef typename T::open_type::Scalar U;
 
-    octetStreams os;
     vector<U> reconstruction;
     U rec_factor;
     ShamirInput<T>* resharing;
@@ -62,20 +61,8 @@ public:
     void reset();
 
     void init_mul();
-    void init_mul(SubProcessor<T>* proc);
 
-    template<class V>
-    void init_mul(V*)
-    {
-        init_mul();
-    }
-    template<class V, class W>
-    void init_mul(const V&, const W&)
-    {
-        init_mul();
-    }
-
-    typename T::clear prepare_mul(const T& x, const T& y, int n = -1);
+    void prepare_mul(const T& x, const T& y, int n = -1);
 
     void exchange();
     void start_exchange();
@@ -85,7 +72,7 @@ public:
 
     T finalize(int n_input_players);
 
-    void init_dotprod(SubProcessor<T>* proc = 0);
+    void init_dotprod();
     void prepare_dotprod(const T& x, const T& y);
     void next_dotprod();
     T finalize_dotprod(int length);

@@ -400,6 +400,9 @@ class Program(object):
             self.allocated_mem[mem_type] += size
             if len(str(addr)) != len(str(addr + size)) and self.verbose:
                 print("Memory of type '%s' now of size %d" % (mem_type, addr + size))
+            if addr + size >= 2 ** 32:
+                raise CompilerError("allocation exceeded for type '%s'" %
+                                    mem_type)
         self.allocated_mem_blocks[addr,mem_type] = size
         if single_size:
             from .library import get_thread_number, runtime_error_if
@@ -577,6 +580,24 @@ class Program(object):
     def disable_memory_warnings(self):
         self.warn_about_mem.append(False)
         self.curr_block.warn_about_mem = False
+
+    @staticmethod
+    def read_tapes(schedule):
+        m = re.search(r'([^/]*)\.mpc', schedule)
+        if m:
+            schedule = m.group(1)
+        if not os.path.exists(schedule):
+            schedule = 'Programs/Schedules/%s.sch' % schedule
+
+        try:
+            lines = open(schedule).readlines()
+        except FileNotFoundError:
+            print('%s not found, have you compiled the program?' % schedule,
+                  file=sys.stderr)
+            sys.exit(1)
+
+        for tapename in lines[2].split(' '):
+            yield tapename.strip()
 
 class Tape:
     """ A tape contains a list of basic blocks, onto which instructions are added. """
@@ -1109,7 +1130,20 @@ class Tape:
         else:
             self.req_bit_length[t] = max(bit_length, self.req_bit_length)
 
-    class Register(object):
+    @staticmethod
+    def read_instructions(tapename):
+        tape = open('Programs/Bytecode/%s.bc' % tapename, 'rb')
+        while tape.peek():
+            yield inst_base.ParsedInstruction(tape)
+
+    class _no_truth(object):
+        __slots__ = []
+
+        def __bool__(self):
+            raise CompilerError('Cannot derive truth value from register, '
+                                "consider using 'compile.py -l'")
+
+    class Register(_no_truth):
         """
         Class for creating new registers. The register's index is automatically assigned
         based on the block's  reg_counter dictionary.
@@ -1232,10 +1266,6 @@ class Tape:
             return self.reg_type == RegType.ClearModp or \
                 self.reg_type == RegType.ClearGF2N or \
                 self.reg_type == RegType.ClearInt
-
-        def __bool__(self):
-            raise CompilerError('Cannot derive truth value from register, '
-                                "consider using 'compile.py -l'")
 
         def __str__(self):
             return self.reg_type + str(self.i)

@@ -71,6 +71,8 @@ public:
   void conv2ds(const Instruction& instruction);
 
   void input_personal(const vector<int>& args);
+  void send_personal(const vector<int>& args);
+  void private_output(const vector<int>& args);
 
   CheckVector<T>& get_S()
   {
@@ -110,7 +112,6 @@ public:
   ifstream private_input;
   ifstream public_input;
   ofstream public_output;
-  ofstream private_output;
   ofstream binary_output;
 
   int sent, rounds;
@@ -171,9 +172,6 @@ class Processor : public ArithmeticProcessor
   GC::Processor<typename sint::bit_type> Procb;
   SubProcessor<sgf2n> Proc2;
   SubProcessor<sint>  Procp;
-
-  typename sgf2n::PrivateOutput privateOutput2;
-  typename sint::PrivateOutput privateOutputp;
 
   unsigned int PC;
   TempVars<sint, sgf2n> temp;
@@ -239,13 +237,9 @@ class Processor : public ArithmeticProcessor
 
   // Read and write secret numeric data to file (name hardcoded at present)
   void read_shares_from_file(int start_file_pos, int end_file_pos_register, const vector<int>& data_registers);
-  void write_shares_to_file(const vector<int>& data_registers);
+  void write_shares_to_file(long start_pos, const vector<int>& data_registers);
   
   cint get_inverse2(unsigned m);
-
-  // Print the processor state
-  template<class T, class U>
-  friend ostream& operator<<(ostream& s,const Processor<T, U>& P);
 
   private:
 

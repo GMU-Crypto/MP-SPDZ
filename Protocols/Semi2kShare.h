@@ -7,7 +7,7 @@
 #define PROTOCOLS_SEMI2KSHARE_H_
 
 #include "SemiShare.h"
-#include "Semi2k.h"
+#include "Semi.h"
 #include "OT/Rectangle.h"
 #include "GC/SemiSecret.h"
 #include "GC/square64.h"
@@ -21,21 +21,17 @@ class Semi2kShare : public SemiShare<SignedZ2<K>>
     typedef SignedZ2<K> T;
 
 public:
-    typedef Z2<64> mac_key_type;
-
     typedef SemiMC<Semi2kShare> MAC_Check;
     typedef DirectSemiMC<Semi2kShare> Direct_MC;
     typedef SemiInput<Semi2kShare> Input;
     typedef ::PrivateOutput<Semi2kShare> PrivateOutput;
-    typedef Semi2k<Semi2kShare> Protocol;
+    typedef Semi<Semi2kShare> Protocol;
     typedef SemiPrep2k<Semi2kShare> LivePrep;
 
     typedef Semi2kShare prep_type;
     typedef SemiMultiplier<Semi2kShare> Multiplier;
     typedef OTTripleGenerator<prep_type> TripleGenerator;
     typedef Z2kSquare<K> Rectangle;
-
-    typedef GC::SemiSecret bit_type;
 
     static const bool has_split = true;
 

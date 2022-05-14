@@ -27,7 +27,8 @@ HemiMatrixPrep<T>& Hemi<T>::get_matrix_prep(const array<int, 3>& dims,
     if (matrix_preps.find(dims) == matrix_preps.end())
         matrix_preps.insert({dims,
             new HemiMatrixPrep<T>(dims[0], dims[1], dims[2],
-                    dynamic_cast<HemiPrep<T>&>(processor.DataF))});
+                    dynamic_cast<typename T::LivePrep&>(processor.DataF),
+                    matrix_usage)});
     return *matrix_preps.at(dims);
 }
 
@@ -51,19 +52,20 @@ void Hemi<T>::matmulsm(SubProcessor<T>& processor, CheckVector<T>& source,
 
     ShareMatrix<T> A(dim[0], dim[1]), B(dim[1], dim[2]);
 
-    for (int i = 0; i < dim[0]; i++)
+    for (int k = 0; k < dim[1]; k++)
     {
-        auto ii = Proc->get_Ci().at(dim[3] + i);
+        for (int i = 0; i < dim[0]; i++)
+        {
+            auto kk = Proc->get_Ci().at(dim[4] + k);
+            auto ii = Proc->get_Ci().at(dim[3] + i);
+            A[{i, k}] = source.at(a + ii * dim[7] + kk);
+        }
+
         for (int j = 0; j < dim[2]; j++)
         {
             auto jj = Proc->get_Ci().at(dim[6] + j);
-            for (int k = 0; k < dim[1]; k++)
-            {
-                auto kk = Proc->get_Ci().at(dim[4] + k);
-                auto ll = Proc->get_Ci().at(dim[5] + k);
-                A[{i, k}] = source.at(a + ii * dim[7] + kk);
-                B[{k, j}] = source.at(b + ll * dim[8] + jj);
-            }
+            auto ll = Proc->get_Ci().at(dim[5] + k);
+            B[{k, j}] = source.at(b + ll * dim[8] + jj);
         }
     }
 
@@ -93,7 +95,8 @@ ShareMatrix<T> Hemi<T>::matrix_multiply(const ShareMatrix<T>& A,
             subdim[2] = min(max_cols, B.n_cols - j);
             auto& prep = get_matrix_prep(subdim, processor);
             MatrixMC<T> mc;
-            beaver.init_mul(prep, mc);
+            beaver.init(prep, mc);
+            beaver.init_mul();
             beaver.prepare_mul(A.from(0, i, subdim.data()),
                     B.from(i, j, subdim.data() + 1));
             beaver.exchange();

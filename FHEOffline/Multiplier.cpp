@@ -69,7 +69,7 @@ void Multiplier<FD>::add(Plaintext_<FD>& res, const Ciphertext& c,
         product_share.randomize(G);
         bigint B = 6 * machine.setup<FD>().params.get_R();
         B *= machine.setup<FD>().FieldD.get_prime();
-        B <<= machine.drown_sec;
+        B <<= machine.setup<FD>().params.secp();
         // slack
         B *= NonInteractiveProof::slack(machine.sec,
                 machine.setup<FD>().params.phi_m());
@@ -128,6 +128,13 @@ void Multiplier<FD>::report_size(ReportType type, MemoryUsage& res)
 {
     (void)type;
     res += memory_usage;
+}
+
+template<class FD>
+const vector<Ciphertext>& Multiplier<FD>::get_multiplicands(
+        const vector<vector<Ciphertext> >& others_ct, const FHE_PK&)
+{
+    return others_ct[P.get_full_player().get_player(-P.get_offset())];
 }
 
 

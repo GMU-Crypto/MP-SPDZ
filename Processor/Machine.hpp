@@ -6,6 +6,7 @@
 #include "Memory.hpp"
 #include "Online-Thread.hpp"
 #include "Protocols/Hemi.hpp"
+#include "Protocols/fake-stuff.hpp"
 
 #include "Tools/Exceptions.h"
 
@@ -23,28 +24,52 @@
 using namespace std;
 
 template<class sint, class sgf2n>
-Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
-    const string& progname_str, const string& memtype,
-    int lg2, bool direct,
-    int opening_sum, bool receive_threads, int max_broadcast,
-    bool use_encryption, bool live_prep, OnlineOptions opts)
-  : my_number(my_number), N(playerNames),
-    direct(direct), opening_sum(opening_sum),
-    receive_threads(receive_threads), max_broadcast(max_broadcast),
-    use_encryption(use_encryption), live_prep(live_prep), opts(opts)
+void Machine<sint, sgf2n>::init_binary_domains(int security_parameter, int lg2)
 {
+  sgf2n::clear::init_field(lg2);
+
+  if (not is_same<typename sgf2n::mac_key_type, GC::NoValue>())
+    {
+      if (sgf2n::clear::degree() < security_parameter)
+        {
+          cerr << "Security parameter needs to be at most n in GF(2^n)."
+              << endl;
+          cerr << "Increase the latter (-lg2) or decrease the former (-S)."
+              << endl;
+          exit(1);
+        }
+    }
+
+  if (not is_same<typename sint::bit_type::mac_key_type, GC::NoValue>())
+    {
+      sint::bit_type::mac_key_type::init_minimum(security_parameter);
+    }
+  else
+    {
+      // Initialize field for CCD
+      sint::bit_type::part_type::open_type::init_field();
+    }
+}
+
+template<class sint, class sgf2n>
+Machine<sint, sgf2n>::Machine(Names& playerNames, bool use_encryption,
+    const OnlineOptions opts, int lg2)
+  : my_number(playerNames.my_num()), N(playerNames),
+    direct(opts.direct), opening_sum(opts.opening_sum),
+    receive_threads(opts.receive_threads), max_broadcast(opts.max_broadcast),
+    use_encryption(use_encryption), live_prep(opts.live_prep), opts(opts)
+{
+  OnlineOptions::singleton = opts;
+
   if (opening_sum < 2)
     this->opening_sum = N.num_players();
   if (max_broadcast < 2)
     this->max_broadcast = N.num_players();
 
   // Set up the fields
-  sgf2n::clear::init_field(lg2);
   sint::clear::read_or_generate_setup(prep_dir_prefix<sint>(), opts);
-  sint::bit_type::mac_key_type::init_field();
 
-  // Initialize gf2n_short for CCD
-  sint::bit_type::part_type::open_type::init_field();
+  init_binary_domains(opts.security_parameter, lg2);
 
   // make directory for outputs if necessary
   mkdir_p(PREP_DIR);
@@ -60,10 +85,10 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
       sint::LivePrep::basic_setup(*P);
     }
 
-  sint::read_or_generate_mac_key(prep_dir_prefix<sint>(), *P, alphapi);
-  sgf2n::read_or_generate_mac_key(prep_dir_prefix<sgf2n>(), *P, alpha2i);
-  sint::bit_type::part_type::read_or_generate_mac_key(
-      prep_dir_prefix<typename sint::bit_type::part_type>(), *P, alphabi);
+  alphapi = read_generate_write_mac_key<sint>(*P);
+  alpha2i = read_generate_write_mac_key<sgf2n>(*P);
+  alphabi = read_generate_write_mac_key<typename
+      sint::bit_type::part_type>(*P);
 
 #ifdef DEBUG_MAC
   cerr << "MAC Key p = " << alphapi << endl;
@@ -74,6 +99,7 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
   sint::clear::next::template init<typename sint::clear>(false);
 
   // Initialize the global memory
+  auto memtype = opts.memtype;
   if (memtype.compare("old")==0)
      {
        ifstream inpf;
@@ -91,14 +117,36 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
      { cerr << "Invalid memory argument" << endl;
        exit(1);
      }
+}
 
+template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::prepare(const string& progname_str)
+{
+  int old_n_threads = nthreads;
+  progs.clear();
   load_schedule(progname_str);
 
-  // remove persistence if necessary
+  // keep preprocessing
+  nthreads = max(old_n_threads, nthreads);
+
+  // initialize persistence if necessary
   for (auto& prog : progs)
     {
-      if (prog.writes_persistance)
-        ofstream(Binary_File_IO::filename(my_number), ios::out);
+      if (prog.writes_persistence)
+        {
+          string filename = Binary_File_IO::filename(my_number);
+          ifstream pers(filename);
+          try
+          {
+              check_file_signature<sint>(pers, filename);
+          }
+          catch (signature_mismatch&)
+          {
+              ofstream pers(filename, ios::binary);
+              file_signature<sint>().output(pers);
+          }
+          break;
+        }
     }
 
 #ifdef VERBOSE
@@ -108,7 +156,7 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
   if (live_prep
       and (sint::needs_ot or sgf2n::needs_ot or sint::bit_type::needs_ot))
   {
-    for (int i = 0; i < nthreads; i++)
+    for (int i = old_n_threads; i < nthreads; i++)
       ot_setups.push_back({ *P, true });
   }
 
@@ -118,7 +166,7 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
   queues.resize(nthreads);
   join_timer.resize(nthreads);
 
-  for (int i=0; i<nthreads; i++)
+  for (int i = old_n_threads; i < nthreads; i++)
     {
       queues[i] = new ThreadQueue;
       // stand-in for initialization
@@ -132,7 +180,7 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
     }
 
   // synchronize with clients before starting timer
-  for (int i=0; i<nthreads; i++)
+  for (int i=old_n_threads; i<nthreads; i++)
     {
       queues[i]->result();
     }
@@ -141,7 +189,12 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
 template<class sint, class sgf2n>
 Machine<sint, sgf2n>::~Machine()
 {
+  sint::LivePrep::teardown();
+  sgf2n::LivePrep::teardown();
+
   delete P;
+  for (auto& queue : queues)
+    delete queue;
 }
 
 template<class sint, class sgf2n>
@@ -292,14 +345,12 @@ DataPositions Machine<sint, sgf2n>::run_tape(int thread_number, int tape_number,
   //printf("Running line %d\n",exec);
   if (progs[tape_number].usage_unknown())
     {
-#ifndef INSECURE
       if (not opts.live_prep and thread_number != 0)
         {
-          cerr << "Internally called tape " << tape_number <<
-              " has unknown offline data usage" << endl;
-          throw invalid_program();
+          insecure(
+              "Internally called tape " + to_string(tape_number)
+                  + " has unknown offline data usage");
         }
-#endif
       return DataPositions(N.num_players());
     }
   else
@@ -320,23 +371,20 @@ DataPositions Machine<sint, sgf2n>::join_tape(int i)
 }
 
 template<class sint, class sgf2n>
-void Machine<sint, sgf2n>::run()
+void Machine<sint, sgf2n>::run_step(const string& progname)
 {
-  Timer proc_timer(CLOCK_PROCESS_CPUTIME_ID);
-  proc_timer.start();
-  timer[0].start();
-
-  // run main tape
+  prepare(progname);
   run_tape(0, 0, 0, N.num_players());
   join_tape(0);
+}
 
-  print_compiler();
-
-  finish_timer.start();
+template<class sint, class sgf2n>
+pair<DataPositions, NamedCommStats> Machine<sint, sgf2n>::stop_threads()
+{
   // Tell all C-threads to stop
   for (int i=0; i<nthreads; i++)
     {
-	//printf("Send kill signal to client\n");
+      //printf("Send kill signal to client\n");
       queues[i]->schedule(-1);
     }
 
@@ -352,8 +400,41 @@ void Machine<sint, sgf2n>::run()
       queues[i]->schedule({});
       pos.increase(queues[i]->result().pos);
       pthread_join(threads[i],NULL);
-      delete queues[i];
     }
+
+  auto comm_stats = total_comm();
+
+  for (auto& queue : queues)
+    delete queue;
+
+  queues.clear();
+
+  nthreads = 0;
+
+  return {pos, comm_stats};
+}
+
+template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::run(const string& progname)
+{
+  prepare(progname);
+
+  Timer proc_timer(CLOCK_PROCESS_CPUTIME_ID);
+  proc_timer.start();
+  timer[0].start({});
+
+  // run main tape
+  run_tape(0, 0, 0, N.num_players());
+  join_tape(0);
+
+  print_compiler();
+
+  finish_timer.start();
+
+  // actual usage
+  auto res = stop_threads();
+  DataPositions& pos = res.first;
+
   finish_timer.stop();
   
 #ifdef VERBOSE
@@ -371,6 +452,8 @@ void Machine<sint, sgf2n>::run()
     cerr << "Join timer: " << i << " " << join_timer[i].elapsed() << endl;
   cerr << "Finish timer: " << finish_timer.elapsed() << endl;
 #endif
+
+  NamedCommStats& comm_stats = res.second;
 
   if (opts.verbose)
     {
@@ -409,12 +492,14 @@ void Machine<sint, sgf2n>::run()
     cerr << "Full broadcast" << endl;
 #endif
 
+#ifdef CHOP_MEMORY
   // Reduce memory size to speed up
   unsigned max_size = 1 << 20;
   if (M2.size_s() > max_size)
     M2.resize_s(max_size);
   if (Mp.size_s() > max_size)
     Mp.resize_s(max_size);
+#endif
 
   // Write out the memory to use next time
   ofstream outf(memory_filename(), ios::out | ios::binary);
@@ -456,14 +541,12 @@ void Machine<sint, sgf2n>::run()
       stats.print();
     }
 
-#ifndef INSECURE
-  Data_Files<sint, sgf2n> df(*this);
-  df.seekg(pos);
-  df.prune();
-#endif
-
-  sint::LivePrep::teardown();
-  sgf2n::LivePrep::teardown();
+  if (not opts.file_prep_per_thread)
+    {
+      Data_Files<sint, sgf2n> df(*this);
+      df.seekg(pos);
+      df.prune();
+    }
 
   suggest_optimizations();
 

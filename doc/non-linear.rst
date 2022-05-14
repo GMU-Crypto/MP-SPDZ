@@ -7,8 +7,8 @@ domains (modulus other than two) only comes in three flavors
 throughout MP-SPDZ:
 
 Unknown prime modulus
-    This approach goes back to `Catrina and Saxena
-    <http://www.ifca.ai/pub/fc10/31_47.pdf>`_. It crucially relies on
+    This approach goes back to `Catrina and de Hoogh
+    <https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.220.9499&rep=rep1&type=pdf>`_. It crucially relies on
     the use of secret random bits in the arithmetic domain. Enough
     such bits allow to mask a secret value so that it is secure to
     reveal the masked value. This can then be split in bits as it is
@@ -56,6 +56,10 @@ Power-of-two modulus
     mask-and-reveal approach above to the setting of computation
     modulo a power of two.
 
+See also `this slide deck
+<https://mkskeller.github.io/files/programming.pdf>`_ for an
+introduction to non-linear computation in arithmetic MPC.
+
 
 Mixed-Circuit Computation
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -70,6 +74,12 @@ more general methods such as `daBits
 <https://eprint.iacr.org/2019/207>`_ and `edaBits
 <https://eprint.iacr.org/2020/338>`_.
 
+See also `this slide deck
+<https://mkskeller.github.io/files/mixed.pdf>`_ for an introduction to
+mixed-circuit computation.
+
+
+.. _protocol-pairs:
 
 Protocol Pairs
 ==============
@@ -88,7 +98,7 @@ The following table lists the matching arithmetic and binary protocols.
        cut-and-choose analysis by `Furukawa et
        al. <https://eprint.iacr.org/2016/944>`_
    *
-     - Semi, Hemi, Soho, Semi2k
+     - Semi, Hemi, Temi, Soho, Semi2k
      - SemiBin (Beaver triples modulo 2 using OT)
    *
      - `Malicious Shamir <https://eprint.iacr.org/2017/816>`_

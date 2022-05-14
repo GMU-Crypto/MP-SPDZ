@@ -44,6 +44,7 @@ public:
             const char* type = "", const string& field = {});
     void seekg(int pos);
     bool is_up() { return file != 0; }
+    bool is_pipe();
     void try_rewind();
     void prune();
     void purge();
@@ -82,6 +83,10 @@ octetStream check_file_signature(ifstream& file, const string& filename)
         file_spec.input(file);
     }
     catch (bad_alloc&)
+    {
+        throw signature_mismatch(filename);
+    }
+    catch (IO_Error&)
     {
         throw signature_mismatch(filename);
     }
